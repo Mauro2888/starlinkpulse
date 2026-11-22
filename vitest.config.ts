@@ -4,6 +4,7 @@ import path from "node:path";
 
 export default defineConfig({
   plugins: [react()],
+  define: { __APP_VERSION__: JSON.stringify("0.1.0-test") },
   resolve: {
     alias: { "@": path.resolve(import.meta.dirname, "./src") },
   },

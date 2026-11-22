@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Section } from "@/components/state-panels";
+import { AppUpdates } from "@/components/controls/app-updates";
 
 interface Props {
   settings: Settings;
@@ -106,6 +107,25 @@ export function SettingsForm({ settings, onSave, readOnlySwitchId = "read-only-s
               checked={draft.closeToTray}
               onCheckedChange={(v) => set("closeToTray", v)}
             />
+          </div>
+          <div className="mt-3 flex items-start justify-between gap-4">
+            <div>
+              <Label htmlFor="launch-at-login-switch" className="text-sm">
+                Open StarlinkPulse when you log in
+              </Label>
+              <p id="launch-at-login-desc" className="mt-0.5 text-xs text-muted-foreground">
+                Starts in the menu bar / tray so history keeps recording.
+              </p>
+            </div>
+            <Switch
+              id="launch-at-login-switch"
+              aria-describedby="launch-at-login-desc"
+              checked={draft.launchAtLogin}
+              onCheckedChange={(v) => set("launchAtLogin", v)}
+            />
+          </div>
+          <div className="mt-3">
+            <AppUpdates />
           </div>
         </fieldset>
 

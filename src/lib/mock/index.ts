@@ -89,6 +89,7 @@ export class MockBackend implements Backend {
   private snowMelt: SnowMeltMode = "auto";
   private hasKey = false;
   private lastRulesReport: AiReport | null = null;
+  private updateInstalled = false;
   private lastAiReport: AiReport | null = null;
   private readonly startMs = Date.now();
 
@@ -172,6 +173,28 @@ export class MockBackend implements Backend {
         return mockUptime(this.profile, this.events(1440), HISTORY_SPAN_MIN * 60 + (Date.now() - this.startMs) / 1000);
       case "get_data_usage":
         return mockUsage(this.profile, this.settings, Math.min(90, Math.max(1, Number(args.days) || 31)));
+      case "check_for_update": {
+        // Dev aid: `?mockUpdate=none` or `?mockUpdate=unconfigured`.
+        const mode = typeof location !== "undefined" ? new URLSearchParams(location.search).get("mockUpdate") : null;
+        const current = __APP_VERSION__;
+        if (mode === "unconfigured") {
+          return { updaterConfigured: false, available: false, currentVersion: current, latestVersion: null, notes: null };
+        }
+        const available = mode !== "none" && !this.updateInstalled;
+        return {
+          updaterConfigured: true,
+          available,
+          currentVersion: current,
+          latestVersion: available ? "0.2.0" : current,
+          notes: available
+            ? "- 3D sky view of obstructions\n- Launch at login\n- Faster history charts"
+            : null,
+        };
+      }
+      case "install_update":
+        await new Promise((r) => setTimeout(r, 2_000));
+        this.updateInstalled = true;
+        return null;
       case "send_test_notification":
         // No OS notifications in the browser mock; succeed silently.
         return null;

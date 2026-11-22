@@ -8,6 +8,10 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 export default defineConfig(() => ({
   plugins: [react(), tailwindcss()],
+  define: {
+    // Shown in Settings before an update check; keep in sync with tauri.conf.json.
+    __APP_VERSION__: JSON.stringify(process.env.npm_package_version ?? "0.0.0"),
+  },
   resolve: {
     alias: { "@": path.resolve(import.meta.dirname, "./src") },
   },

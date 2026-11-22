@@ -1,0 +1,123 @@
+import { useState } from "react";
+import { CircleCheck, Download, Loader2, RefreshCw } from "lucide-react";
+import type { UpdateInfo } from "@/types/models";
+import { api } from "@/lib/api";
+import { toastError, toastSuccess } from "@/lib/notify";
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+
+const RELEASES_URL = import.meta.env.VITE_RELEASES_URL ?? "";
+
+/** Current version, manual update check and install (with confirmation). */
+export function AppUpdates() {
+  const [info, setInfo] = useState<UpdateInfo | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const check = async () => {
+    setChecking(true);
+    try {
+      setInfo(await api.checkForUpdate());
+    } catch (e) {
+      toastError(e, "Couldn't check for updates");
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const install = async () => {
+    setInstalling(true);
+    try {
+      await api.installUpdate();
+      // In the desktop app the process restarts; this toast is only seen if it doesn't.
+      toastSuccess("Update installed", "StarlinkPulse is restarting.");
+    } catch (e) {
+      toastError(e, "Update failed");
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  const version = info?.currentVersion ?? __APP_VERSION__;
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg bg-muted/40 p-3 ring-1 ring-border" aria-live="polite">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm">
+          Version <span className="num">{version}</span>
+        </p>
+        {info?.updaterConfigured !== false && (
+          <Button type="button" size="sm" variant="outline" onClick={check} disabled={checking || installing}>
+            {checking ? <Loader2 className="animate-spin" aria-hidden /> : <RefreshCw aria-hidden />}
+            Check for updates
+          </Button>
+        )}
+      </div>
+
+      {info && !info.updaterConfigured && (
+        <p className="text-xs text-muted-foreground">
+          Updates: download new versions from{" "}
+          {RELEASES_URL ? (
+            <a href={RELEASES_URL} target="_blank" rel="noreferrer" className="font-medium text-primary underline-offset-2 hover:underline">
+              GitHub Releases
+            </a>
+          ) : (
+            <span className="font-medium text-foreground">GitHub Releases</span>
+          )}
+          . This build can't update itself.
+        </p>
+      )}
+
+      {info?.updaterConfigured && !info.available && (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <CircleCheck className="size-3.5 text-good" aria-hidden /> You're up to date.
+        </p>
+      )}
+
+      {info?.updaterConfigured && info.available && (
+        <div className="flex flex-col gap-2">
+          <p className="text-sm font-medium">
+            Version <span className="num">{info.latestVersion}</span> is available
+          </p>
+          {info.notes && (
+            <div className="max-h-32 overflow-y-auto rounded-md bg-background/50 px-2.5 py-2 text-xs leading-relaxed whitespace-pre-line text-muted-foreground">
+              {info.notes}
+            </div>
+          )}
+          <div>
+            <Button type="button" size="sm" onClick={() => setConfirmOpen(true)} disabled={installing}>
+              {installing ? <Loader2 className="animate-spin" aria-hidden /> : <Download aria-hidden />}
+              {installing ? "Installing…" : "Install and restart"}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Install version {info?.latestVersion} and restart?</AlertDialogTitle>
+            <AlertDialogDescription>
+              StarlinkPulse downloads the update, checks its signature, installs it and restarts. Monitoring pauses
+              for a few seconds. Your settings and history are kept.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Not now</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void install()}>Install and restart</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
