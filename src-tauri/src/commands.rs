@@ -297,6 +297,12 @@ pub async fn check_for_update(app: tauri::AppHandle) -> CmdResult<crate::models:
     Ok(crate::updater::check(&app).await?)
 }
 
+/// Opens the fixed GitHub Releases page of this build in the system browser.
+#[tauri::command]
+pub async fn open_releases_page(app: tauri::AppHandle) -> CmdResult<()> {
+    Ok(crate::updater::open_releases_page(&app)?)
+}
+
 /// Downloads, verifies and installs the update, then restarts the app.
 #[tauri::command]
 pub async fn install_update(app: tauri::AppHandle) -> CmdResult<()> {

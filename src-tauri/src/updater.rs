@@ -12,8 +12,39 @@ use tauri_plugin_updater::UpdaterExt;
 use crate::error::AppError;
 use crate::models::UpdateInfo;
 
-/// Placeholder owner in the repository URL / endpoint (TODO before the first release).
+/// Placeholder owner in the repository URL / endpoint (TODO before the first release:
+/// replace `OWNER` in Cargo.toml `repository` and in tauri.conf.json, see docs/releasing.md).
 pub const OWNER_PLACEHOLDER: &str = "/OWNER/";
+
+/// Repository URL from Cargo.toml `repository`, fixed at compile time.
+pub const REPOSITORY_URL: &str = env!("CARGO_PKG_REPOSITORY");
+
+/// The only URL `open_releases_page` can open: `<repository>/releases`.
+pub fn releases_url(repository: &str) -> Result<String, AppError> {
+    let repo = repository.trim().trim_end_matches('/');
+    let url = format!("{repo}/releases");
+    if url.contains(OWNER_PLACEHOLDER) {
+        return Err(AppError::InvalidInput(
+            "the releases page is not configured in this build (repository owner placeholder)"
+                .into(),
+        ));
+    }
+    if !url.starts_with("https://github.com/") || repo.split('/').count() != 5 {
+        return Err(AppError::InvalidInput(
+            "the repository URL in this build is not a GitHub repository".into(),
+        ));
+    }
+    Ok(url)
+}
+
+/// Opens the releases page in the system browser (no webview permission involved).
+pub fn open_releases_page(app: &AppHandle) -> Result<(), AppError> {
+    use tauri_plugin_opener::OpenerExt;
+    let url = releases_url(REPOSITORY_URL)?;
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| AppError::Internal(format!("could not open the browser: {e}")))
+}
 
 /// True when the updater config has a real public key and real endpoints.
 pub fn is_configured(updater_config: Option<&Value>) -> bool {
@@ -116,6 +147,37 @@ mod tests {
 
     const KEY: &str =
         "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFCQ0RFRjEyMzQ1Njc4OTAK";
+
+    #[test]
+    fn releases_url_is_fixed_and_validated() {
+        assert_eq!(
+            releases_url("https://github.com/acme/StarlinkPulse").unwrap(),
+            "https://github.com/acme/StarlinkPulse/releases"
+        );
+        assert_eq!(
+            releases_url("https://github.com/acme/StarlinkPulse/").unwrap(),
+            "https://github.com/acme/StarlinkPulse/releases"
+        );
+        // The shipped placeholder is rejected with invalid_input.
+        let e = releases_url("https://github.com/OWNER/StarlinkPulse").unwrap_err();
+        assert_eq!(e.kind(), "invalid_input");
+        assert!(
+            REPOSITORY_URL.contains("/OWNER/"),
+            "repo still has the placeholder"
+        );
+        assert_eq!(
+            releases_url(REPOSITORY_URL).unwrap_err().kind(),
+            "invalid_input"
+        );
+        for bad in [
+            "http://github.com/a/b",
+            "https://evil.example/a/b",
+            "https://github.com/a/b/c",
+            "",
+        ] {
+            assert!(releases_url(bad).is_err(), "{bad}");
+        }
+    }
 
     #[test]
     fn configuration_detection() {

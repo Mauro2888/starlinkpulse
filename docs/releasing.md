@@ -18,6 +18,10 @@ Replace `OWNER` with the GitHub user or organisation that hosts the repository i
 While the endpoint still contains `/OWNER/`, the app reports `updaterConfigured: false` and
 never checks for updates.
 
+The "Open releases page" button opens `<repository>/releases`, using the `repository` value
+from `Cargo.toml` built into the app. While that value still contains `OWNER`, the button
+returns `invalid_input`.
+
 ### 2. Create the updater signing key
 
 Updates are verified with a minisign key pair: the **public** key is embedded in the app, and

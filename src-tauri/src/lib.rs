@@ -50,6 +50,8 @@ pub fn run() {
             Some(vec![autostart::AUTOSTART_FLAG]),
         ))
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // Opener is used from Rust only (fixed releases URL); no webview permission granted.
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             keyring_store::init_file_fallback(&data_dir);
@@ -115,6 +117,7 @@ pub fn run() {
             commands::get_last_ai_report,
             commands::check_for_update,
             commands::install_update,
+            commands::open_releases_page,
             commands::run_diagnostics,
             commands::get_last_rules_report,
             commands::list_local_models,
