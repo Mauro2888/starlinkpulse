@@ -19,6 +19,8 @@ pub trait EventSink: Send + Sync {
     fn telemetry(&self, snapshot: &TelemetrySnapshot);
     fn connection_status(&self, status: &ConnectionStatus);
     fn capabilities(&self, caps: &DishCapabilities);
+    /// Shows a desktop notification (already filtered by the engine).
+    fn notify(&self, _n: &crate::notify::Notification) {}
 }
 
 /// Sink that discards everything.
@@ -58,6 +60,8 @@ pub struct AppState {
     pub write_denials: Mutex<WriteDenials>,
     /// Event sink, set by the service (used by commands to emit `capabilities`).
     pub sink: RwLock<Option<Arc<dyn EventSink>>>,
+    /// Notification decisions (transitions, cooldown).
+    pub notifier: Mutex<crate::notify::NotificationEngine>,
     /// Held while an AI analysis runs (one at a time).
     pub ai_lock: tokio::sync::Mutex<()>,
     /// Signalled when settings require a reconnect.
@@ -123,6 +127,7 @@ impl AppState {
             write_denials: Mutex::new(WriteDenials::default()),
             sink: RwLock::new(None),
             ai_lock: tokio::sync::Mutex::new(()),
+            notifier: Mutex::new(crate::notify::NotificationEngine::new()),
             reconnect: Notify::new(),
         })
     }
@@ -155,6 +160,11 @@ impl AppState {
         *self.client.write().await = None;
         *caps = DishCapabilities::default();
         let id = self.session.fetch_add(1, Ordering::SeqCst) + 1;
+        // New connection: the next status is a notification baseline again.
+        self.notifier
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .reset();
         self.caps_session.store(0, Ordering::SeqCst);
         id
     }

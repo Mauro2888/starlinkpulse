@@ -1,6 +1,8 @@
 import { useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
 import { AlertCircle, History, RefreshCw } from "lucide-react";
-import { useCapabilities, useEvents, useHistory } from "@/hooks/use-pulse";
+import { useCapabilities, useDataUsage, useEvents, useHistory, useUptime } from "@/hooks/use-pulse";
+import { UptimeCard } from "@/components/history/uptime-card";
+import { DataUsageCard } from "@/components/history/data-usage-card";
 import { bucketHistory, summarizeHistory } from "@/lib/history";
 import {
   EM_DASH,
@@ -80,6 +82,8 @@ export function HistoryTab() {
   const history = useHistory(range);
   const evts = useEvents(range);
   const caps = useCapabilities();
+  const uptime = useUptime();
+  const usage = useDataUsage(62);
 
   // Recompute the window whenever new data arrives (refresh every minute).
   const toMs = useMemo(() => Date.now(), [history.data, range]);
@@ -210,7 +214,7 @@ export function HistoryTab() {
         </div>
 
         <Section
-          title="Outages"
+          title="Outage log"
           aside={<span className="num text-xs text-muted-foreground">{events.length} in range</span>}
         >
           {events.length === 0 ? (
@@ -240,6 +244,10 @@ export function HistoryTab() {
 
   return (
     <div className="flex flex-col gap-3">
+      <div className="grid gap-3 md:grid-cols-2 md:items-start">
+        <UptimeCard data={uptime.data} error={uptime.error} />
+        <DataUsageCard data={usage.data} error={usage.error} />
+      </div>
       <div className="flex items-center justify-between gap-2">
         <RangePicker value={range} onChange={setRange} />
         <Button size="icon-sm" variant="ghost" onClick={refresh} aria-label="Refresh history" title="Refresh">

@@ -11,6 +11,7 @@ use crate::dish::grpc::{DEFAULT_TIMEOUT, GrpcClient};
 use crate::dish::mock::MockClient;
 use crate::dish::{RouterClient, StarlinkClient};
 use crate::models::{ConnectionState, ConnectionStatus, MockMode, Settings};
+use crate::notify::{Notification, Observation};
 use crate::state::{AppState, EventSink, lock_db};
 use crate::storage::{BootInfo, aggregate_minutes};
 use crate::time::now_ms;
@@ -35,6 +36,7 @@ pub const ROUTER_BACKOFF_MAX: Duration = Duration::from_secs(30 * 60);
 /// Runs forever; restarts the session whenever settings require a reconnect.
 pub async fn run(state: Arc<AppState>, sink: Arc<dyn EventSink>) {
     *state.sink.write().await = Some(sink.clone());
+    restore_data_cap_level(&state).await;
     loop {
         let settings = state.settings.read().await.clone();
         tokio::select! {
@@ -125,7 +127,14 @@ async fn prepare_mock_db(state: &Arc<AppState>, mock: Arc<MockClient>) {
         *guard = fresh;
         let (samples, outages) = mock.backfill(MOCK_BACKFILL_HOURS);
         let points = aggregate_minutes(&samples);
-        guard.insert_backfill(&points, &outages, now_ms())
+        guard.insert_backfill(&points, &outages, now_ms())?;
+        guard.add_usage(&crate::usage::usage_by_local_day(&samples, &chrono::Local))?;
+        // Older days (3..=30) as daily aggregates for 7 d / 30 d uptime and usage.
+        let (daily, usage) = mock.daily_backfill(30, 2);
+        guard.insert_daily_if_missing(&daily)?;
+        let usage: std::collections::BTreeMap<i64, (f64, f64)> =
+            usage.into_iter().map(|(d, a, b)| (d, (a, b))).collect();
+        guard.add_usage(&usage)
     })
     .await;
     match res {
@@ -265,6 +274,7 @@ async fn session(state: &Arc<AppState>, settings: &Settings, sink: &Arc<dyn Even
     *state.power_cache.write().await = None;
     let mut router = router;
     detect_capabilities(state, sink, &client, router.is_some(), session_id).await;
+    check_data_cap(state, sink, client.is_mock()).await;
     set_status(state, sink, |s| {
         s.router_available = router.is_some();
         s.last_error = fallback_reason.clone();
@@ -299,6 +309,7 @@ async fn session(state: &Arc<AppState>, settings: &Settings, sink: &Arc<dyn Even
             }
             _ = history.tick() => {
                 ingest_history(state, &client).await;
+                check_data_cap(state, sink, client.is_mock()).await;
             }
             _ = router_tick.tick() => {
                 if let Some(r) = router.clone() {
@@ -357,6 +368,85 @@ impl Drop for AbortOnDrop {
     }
 }
 
+const DATA_CAP_META_KEY: &str = "data_cap_notified";
+
+/// Restores which data-cap level was already notified in the current cycle (survives restarts).
+async fn restore_data_cap_level(state: &AppState) {
+    let db = state.db.clone();
+    let stored = tokio::task::spawn_blocking(move || lock_db(&db).meta_get(DATA_CAP_META_KEY))
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .flatten();
+    if let Some((start, level)) = stored.as_deref().and_then(|s| s.split_once(':'))
+        && let (Ok(start), Ok(level)) = (start.parse::<i64>(), level.parse::<u8>())
+    {
+        state
+            .notifier
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .set_data_cap_level(start, level);
+    }
+}
+
+/// Filters candidate notifications (settings, quiet hours, cooldown, mock) and shows them.
+async fn deliver(
+    state: &AppState,
+    sink: &Arc<dyn EventSink>,
+    candidates: Vec<Notification>,
+    is_mock: bool,
+) {
+    if candidates.is_empty() {
+        return;
+    }
+    let settings = state.settings.read().await.notifications.clone();
+    let now = now_ms();
+    let hour = crate::usage::local_hour(now, &chrono::Local);
+    let shown = state
+        .notifier
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .filter(candidates, &settings, now, hour, is_mock);
+    for n in &shown {
+        tracing::info!(kind = ?n.kind, "notification shown");
+        sink.notify(n);
+    }
+}
+
+/// Compares the billing-cycle usage estimate with the cap (real dish only).
+pub async fn check_data_cap(state: &AppState, sink: &Arc<dyn EventSink>, is_mock: bool) {
+    if is_mock {
+        return;
+    }
+    let settings = state.settings.read().await.clone();
+    let Some(cap) = settings.data_cap_gb else {
+        return;
+    };
+    let now = now_ms();
+    let start = crate::usage::cycle_start_ms(now, settings.billing_cycle_day, &chrono::Local);
+    let db = state.db.clone();
+    let Ok(Ok(rows)) = tokio::task::spawn_blocking(move || lock_db(&db).usage_since(start)).await
+    else {
+        return;
+    };
+    let used: f64 = rows.iter().map(|r| r.download_bytes + r.upload_bytes).sum();
+    let (candidates, level) = {
+        let mut engine = state.notifier.lock().unwrap_or_else(|p| p.into_inner());
+        let c = engine.observe_usage(start, used, Some(cap));
+        (c, engine.data_cap_level())
+    };
+    if !candidates.is_empty()
+        && let Some((s, l)) = level
+    {
+        let db = state.db.clone();
+        let value = format!("{s}:{l}");
+        let _ =
+            tokio::task::spawn_blocking(move || lock_db(&db).meta_set(DATA_CAP_META_KEY, &value))
+                .await;
+    }
+    deliver(state, sink, candidates, false).await;
+}
+
 /// Latest power from the cache filled by the history ingest (no network call, so telemetry
 /// is never delayed). Dropped once older than [`POWER_STALE`].
 async fn cached_power(state: &AppState) -> Option<f64> {
@@ -396,6 +486,16 @@ async fn live_poll(
                 snap.power_w = cached_power(&state).await;
                 *state.snapshot.write().await = Some(snap.clone());
                 sink.telemetry(&snap);
+                let candidates = state
+                    .notifier
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .observe(&Observation {
+                        now_ms: snap.timestamp_ms,
+                        snapshot: Some(&snap),
+                        outage_cause: st.current_outage_cause.as_deref(),
+                    });
+                deliver(&state, &sink, candidates, client.is_mock()).await;
                 let throttled = [
                     &snap.dl_bandwidth_restricted_reason,
                     &snap.ul_bandwidth_restricted_reason,
@@ -458,9 +558,13 @@ mod tests {
         telemetry: Mutex<Vec<TelemetrySnapshot>>,
         status: Mutex<Vec<ConnectionStatus>>,
         caps: Mutex<Vec<DishCapabilities>>,
+        notes: Mutex<Vec<crate::notify::Notification>>,
     }
 
     impl EventSink for Recorder {
+        fn notify(&self, n: &crate::notify::Notification) {
+            self.notes.lock().unwrap().push(n.clone());
+        }
         fn telemetry(&self, s: &TelemetrySnapshot) {
             self.telemetry.lock().unwrap().push(s.clone());
         }
@@ -565,5 +669,87 @@ mod tests {
         }
         assert!(state.capabilities.read().await.has_power_telemetry);
         task.abort();
+    }
+
+    #[tokio::test]
+    async fn mock_session_has_uptime_usage_and_no_notifications() {
+        let settings = Settings {
+            mock_mode: MockMode::On,
+            mock_profile: MockProfile::Mini,
+            live_poll_interval_s: 1,
+            ..Default::default()
+        };
+        let state = Arc::new(AppState::in_memory(settings).unwrap());
+        let rec = Arc::new(Recorder::default());
+        let sink: Arc<dyn EventSink> = rec.clone();
+        let task = tokio::spawn(run(state.clone(), sink));
+        wait_for(|| !rec.telemetry.lock().unwrap().is_empty()).await;
+
+        let up = crate::commands::uptime_stats(&state).await.unwrap();
+        let labels: Vec<&str> = up.windows.iter().map(|w| w.label.as_str()).collect();
+        assert_eq!(labels, vec!["24h", "7d", "30d"]);
+        for w in &up.windows {
+            let pct = w.uptime_pct.expect("mock has enough coverage");
+            assert!((90.0..=100.0).contains(&pct), "{} {pct}", w.label);
+            assert!(w.covered_s <= w.window_s);
+        }
+        // 24 h backfilled (the oldest minute is cut at the window edge).
+        assert!(
+            up.windows[0].covered_s >= 86_280.0,
+            "{}",
+            up.windows[0].covered_s
+        );
+
+        let usage = crate::commands::data_usage(&state, 30).await.unwrap();
+        assert_eq!(usage.daily.len(), 30);
+        assert!(usage.is_estimate);
+        assert!(usage.daily.windows(2).all(|w| w[0].day_ms < w[1].day_ms));
+        let total_gb: f64 = usage.daily.iter().map(|d| d.download_bytes).sum::<f64>() / 1e9;
+        assert!(
+            (50.0..=1000.0).contains(&total_gb),
+            "{total_gb} GB in 30 days"
+        );
+        assert!(usage.cycle_download_bytes > 0.0);
+        assert!(crate::commands::data_usage(&state, 0).await.is_err());
+        assert!(crate::commands::data_usage(&state, 91).await.is_err());
+
+        // Mock mode never shows notifications.
+        assert!(rec.notes.lock().unwrap().is_empty());
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn data_cap_notifies_once_and_persists() {
+        let state = AppState::in_memory(Settings {
+            data_cap_gb: Some(1.0),
+            ..Default::default()
+        })
+        .unwrap();
+        let rec = Arc::new(Recorder::default());
+        let sink: Arc<dyn EventSink> = rec.clone();
+        let today = crate::usage::local_day_start_ms(now_ms(), &chrono::Local);
+        let mut usage = std::collections::BTreeMap::new();
+        usage.insert(today, (0.7e9, 0.15e9));
+        lock_db(&state.db).add_usage(&usage).unwrap();
+
+        check_data_cap(&state, &sink, false).await;
+        check_data_cap(&state, &sink, false).await;
+        // Mock never checks the cap.
+        check_data_cap(&state, &sink, true).await;
+        let notes = rec.notes.lock().unwrap().clone();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].kind, crate::notify::NotificationKind::DataCap);
+        let stored = lock_db(&state.db)
+            .meta_get(DATA_CAP_META_KEY)
+            .unwrap()
+            .unwrap();
+        assert!(stored.ends_with(":80"));
+
+        // After a restart the persisted level prevents a repeat.
+        state.notifier.lock().unwrap().reset();
+        *state.notifier.lock().unwrap() = crate::notify::NotificationEngine::new();
+        restore_data_cap_level(&state).await;
+        check_data_cap(&state, &sink, false).await;
+        assert_eq!(rec.notes.lock().unwrap().len(), 1);
     }
 }

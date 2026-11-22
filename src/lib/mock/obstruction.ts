@@ -45,9 +45,10 @@ export function mockObstructionMap(profile: MockProfile): ObstructionMap {
       const p = cellToSky(r, c, meta);
       if (!p) continue;
       const i = cellIndex(r, c, SIZE);
-      // Satellite tracks: diagonal bands + random speckle, denser near the zenith.
-      const band = Math.sin((p.azimuthDeg / 360) * Math.PI * 14 + p.thetaDeg / 9) > -0.35;
-      const covered = band ? hash(i) < 0.92 : hash(i + 3) < 0.25;
+      // Patchy coverage where satellite tracks passed: low-frequency blotches + speckle.
+      const field =
+        Math.sin(p.azimuthDeg * 0.07 + p.thetaDeg * 0.21) + 0.8 * Math.sin(p.azimuthDeg * 0.031 - p.thetaDeg * 0.13);
+      const covered = field > -0.9 ? hash(i) < 0.9 : hash(i + 3) < 0.2;
       if (!covered) continue;
       let v = 0.82 + hash(i + 11) * 0.18;
       for (const b of blobs) {

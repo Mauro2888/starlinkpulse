@@ -2,7 +2,7 @@ import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { PulseContext, type PulseState } from "@/state/pulse-context";
 import { api } from "@/lib/api";
 import { normalizeError, type ApiError } from "@/lib/errors";
-import type { DishEvent, HistoryPoint, ObstructionMap } from "@/types/models";
+import type { DataUsage, DishEvent, HistoryPoint, ObstructionMap, UptimeStats } from "@/types/models";
 
 function usePulse(): PulseState {
   const ctx = useContext(PulseContext);
@@ -105,6 +105,20 @@ export function useHistory(rangeMinutes: number): AsyncResource<HistoryPoint[]> 
 export function useEvents(rangeMinutes: number): AsyncResource<DishEvent[]> {
   const [source, version] = useSourceKey();
   return useAsyncResource(() => api.getEvents(rangeMinutes), `e${rangeMinutes}|${source}`, version, 60_000);
+}
+
+/** Uptime % for 24h / 7d / 30d (refreshes every 5 minutes). */
+export function useUptime(): AsyncResource<UptimeStats> {
+  const [source, version] = useSourceKey();
+  return useAsyncResource(() => api.getUptimeStats(), `u|${source}`, version, 300_000);
+}
+
+/** Estimated data usage; refetches when the cap or cycle day changes. */
+export function useDataUsage(days = 31): AsyncResource<DataUsage> {
+  const [source, version] = useSourceKey();
+  const { settings } = usePulse();
+  const plan = `${settings?.dataCapGb ?? "none"}|${settings?.billingCycleDay ?? 1}`;
+  return useAsyncResource(() => api.getDataUsage(days), `d${days}|${source}|${plan}`, version, 300_000);
 }
 
 /** Write-only API key status. The key itself is never read back. */

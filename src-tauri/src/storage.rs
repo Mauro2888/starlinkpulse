@@ -12,7 +12,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 
 use crate::dish::DishHistory;
-use crate::models::{AiReport, DishEvent, HistoryPoint};
+use crate::models::{AiReport, DailyUsage, DishEvent, HistoryPoint};
 use crate::time::{DAY_MS, MINUTE_MS, day_floor, minute_floor};
 
 pub const RAW_RETENTION_MS: i64 = 2 * 3_600_000;
@@ -218,6 +218,14 @@ CREATE TABLE throttle_minutes (minute_ms INTEGER PRIMARY KEY);
 -- Last AI advisor report (single row).
 CREATE TABLE ai_report (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL);
 "#,
+    r#"
+-- Estimated bytes per LOCAL day (key = local midnight as Unix ms), kept 90 days.
+CREATE TABLE usage_daily (
+    day_ms INTEGER PRIMARY KEY,
+    download_bytes REAL NOT NULL,
+    upload_bytes REAL NOT NULL
+);
+"#,
 ];
 
 const LAST_CURRENT_KEY: &str = "history_last_current";
@@ -402,6 +410,11 @@ impl Db {
                 minutes.insert(minute_floor(s.ts_s * 1000));
             }
         }
+        // Data usage: only the new (deduplicated) seconds are integrated.
+        add_usage(
+            &tx,
+            &crate::usage::usage_by_local_day(&samples, &chrono::Local),
+        )?;
         // Recompute every touched minute from raw samples so partial minutes merge exactly.
         let mut points = Vec::with_capacity(minutes.len());
         for &m in &minutes {
@@ -460,6 +473,36 @@ impl Db {
         tx.commit()
     }
 
+    /// Inserts daily aggregates that do not exist yet (mock backfill).
+    pub fn insert_daily_if_missing(
+        &mut self,
+        rows: &[DailyAggregate],
+    ) -> Result<(), rusqlite::Error> {
+        let tx = self.conn.transaction()?;
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT OR IGNORE INTO daily
+                 (day_ms, samples, latency_avg_ms, drop_rate_avg, downlink_bytes, uplink_bytes,
+                  energy_wh, outage_count, outage_s)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            )?;
+            for r in rows {
+                stmt.execute(params![
+                    r.day_ms,
+                    r.samples,
+                    r.latency_avg_ms,
+                    r.drop_rate_avg,
+                    r.downlink_bytes,
+                    r.uplink_bytes,
+                    r.energy_wh,
+                    r.outage_count,
+                    r.outage_s
+                ])?;
+            }
+        }
+        tx.commit()
+    }
+
     /// Minute aggregates of the last `range_minutes`, ascending.
     pub fn history(
         &self,
@@ -512,6 +555,67 @@ impl Db {
             })
         })?;
         rows.collect()
+    }
+
+    /// Adds per-local-day usage (from [`crate::usage::usage_by_local_day`]).
+    pub fn add_usage(
+        &mut self,
+        usage: &std::collections::BTreeMap<i64, (f64, f64)>,
+    ) -> Result<(), rusqlite::Error> {
+        let tx = self.conn.transaction()?;
+        add_usage(&tx, usage)?;
+        tx.commit()
+    }
+
+    /// Usage rows with `day_ms >= from_ms`, ascending.
+    pub fn usage_since(&self, from_ms: i64) -> Result<Vec<DailyUsage>, rusqlite::Error> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT day_ms, download_bytes, upload_bytes FROM usage_daily
+             WHERE day_ms >= ?1 ORDER BY day_ms ASC",
+        )?;
+        let rows = stmt.query_map([from_ms], |r| {
+            Ok(DailyUsage {
+                day_ms: r.get(0)?,
+                download_bytes: r.get(1)?,
+                upload_bytes: r.get(2)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    /// Seconds of history (1 sample = 1 s) in the last `range_minutes` (minute table, 48 h).
+    pub fn covered_seconds(&self, range_minutes: u32, now_ms: i64) -> Result<f64, rusqlite::Error> {
+        self.conn.query_row(
+            "SELECT COALESCE(SUM(samples), 0) FROM minutes WHERE minute_ms >= ?1 AND minute_ms <= ?2",
+            [now_ms - range_minutes as i64 * MINUTE_MS, now_ms],
+            |r| r.get::<_, i64>(0).map(|v| v as f64),
+        )
+    }
+
+    /// `(covered_s, outage_count, outage_s)` from the daily table over the last `days` UTC
+    /// days (today included); survives the 48 h pruning of minute data.
+    pub fn daily_uptime(&self, days: u32, now_ms: i64) -> Result<(f64, u32, f64), rusqlite::Error> {
+        let since = day_floor(now_ms) - (days as i64 - 1).max(0) * DAY_MS;
+        self.conn.query_row(
+            "SELECT COALESCE(SUM(samples), 0), COALESCE(SUM(outage_count), 0),
+                    COALESCE(SUM(outage_s), 0) FROM daily WHERE day_ms >= ?1",
+            [since],
+            |r| Ok((r.get::<_, i64>(0)? as f64, r.get(1)?, r.get(2)?)),
+        )
+    }
+
+    pub fn meta_get(&self, key: &str) -> Result<Option<String>, rusqlite::Error> {
+        self.conn
+            .query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0))
+            .optional()
+    }
+
+    pub fn meta_set(&self, key: &str, value: &str) -> Result<(), rusqlite::Error> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
+            params![key, value],
+        )?;
+        Ok(())
     }
 
     /// Outages (not other events) overlapping the last `range_minutes`, ascending.
@@ -600,6 +704,22 @@ impl Db {
         })?;
         rows.collect()
     }
+}
+
+fn add_usage(
+    conn: &Connection,
+    usage: &std::collections::BTreeMap<i64, (f64, f64)>,
+) -> Result<(), rusqlite::Error> {
+    let mut stmt = conn.prepare_cached(
+        "INSERT INTO usage_daily (day_ms, download_bytes, upload_bytes) VALUES (?1, ?2, ?3)
+         ON CONFLICT (day_ms) DO UPDATE SET
+            download_bytes = usage_daily.download_bytes + excluded.download_bytes,
+            upload_bytes = usage_daily.upload_bytes + excluded.upload_bytes",
+    )?;
+    for (day, (down, up)) in usage {
+        stmt.execute(params![day, down, up])?;
+    }
+    Ok(())
 }
 
 fn load_samples(conn: &Connection, from_s: i64, to_s: i64) -> Result<Vec<Sample>, rusqlite::Error> {
@@ -800,6 +920,10 @@ fn prune(conn: &Connection, now_ms: i64) -> Result<(), rusqlite::Error> {
         [now_ms - DAILY_RETENTION_MS],
     )?;
     conn.execute(
+        "DELETE FROM usage_daily WHERE day_ms < ?1",
+        [now_ms - DAILY_RETENTION_MS - DAY_MS],
+    )?;
+    conn.execute(
         "DELETE FROM throttle_minutes WHERE minute_ms < ?1",
         [now_ms - MINUTE_RETENTION_MS],
     )?;
@@ -970,6 +1094,27 @@ mod tests {
             .unwrap();
         assert!(!r.counter_reset);
         assert_eq!(r.new_samples, 60);
+    }
+
+    #[test]
+    fn ingest_integrates_usage_once() {
+        let mut db = Db::open_in_memory().unwrap();
+        let t0: i64 = 1_800_000_000;
+        let h = history(300, 900, |_| 25.0); // downlink 8000 bps = 1000 B/s
+        db.ingest_history(&h, t0 * 1000).unwrap();
+        db.ingest_history(&h, t0 * 1000).unwrap(); // duplicate response
+        let total = |db: &Db| -> (f64, f64) {
+            db.usage_since(0)
+                .unwrap()
+                .iter()
+                .fold((0.0, 0.0), |(d, u), r| {
+                    (d + r.download_bytes, u + r.upload_bytes)
+                })
+        };
+        assert_eq!(total(&db), (300.0 * 1000.0, 300.0 * 100.0));
+        db.ingest_history(&history(360, 900, |_| 25.0), (t0 + 60) * 1000)
+            .unwrap();
+        assert_eq!(total(&db).0, 360.0 * 1000.0);
     }
 
     #[test]

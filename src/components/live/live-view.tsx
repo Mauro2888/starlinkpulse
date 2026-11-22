@@ -29,6 +29,8 @@ import {
 } from "@/lib/format";
 import { explainAlert, explainDisablement, explainRestriction } from "@/lib/explain";
 import { dishModelName } from "@/lib/dish";
+import { alignmentGuidance } from "@/lib/sky";
+import { AlignmentHelper } from "@/components/sky/alignment-helper";
 import type { ApiError } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { MetricTile, Reading, StatusDot, type StatusTone } from "@/components/metric";
@@ -46,6 +48,8 @@ export interface LiveViewProps {
   pollIntervalS: number;
   /** Settings mock mode: tells a deliberate demo apart from an automatic fallback. */
   mockMode?: MockMode | null;
+  /** Obstruction map section, rendered by the container (it fetches its own data). */
+  skySlot?: ReactNode;
 }
 
 function latencyTone(ms: number | null): [StatusTone, string] | null {
@@ -86,7 +90,7 @@ function tile(note: [StatusTone, string] | null) {
   return note ? { tone: note[0], note: note[1] } : { note: undefined, tone: undefined };
 }
 
-export function LiveView({ snapshot, buffer, capabilities, connection, error, now, pollIntervalS, mockMode }: LiveViewProps) {
+export function LiveView({ snapshot, buffer, capabilities, connection, error, now, pollIntervalS, mockMode, skySlot }: LiveViewProps) {
   const state = connection?.state ?? null;
 
   if (!snapshot) {
@@ -284,6 +288,14 @@ export function LiveView({ snapshot, buffer, capabilities, connection, error, no
               </ul>
             )}
           </Section>
+
+          {skySlot}
+
+          {capabilities?.actuators !== "yes" && alignmentGuidance(s.alignment) && (
+            <Section title="Alignment" id="alignment">
+              <AlignmentHelper alignment={s.alignment} />
+            </Section>
+          )}
 
           <Section title="Dish">
             <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs">

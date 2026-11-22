@@ -1,6 +1,7 @@
 import { useCapabilities, useConnection, useSettings, useTelemetry } from "@/hooks/use-pulse";
 import { useNow } from "@/hooks/use-now";
 import { LiveView } from "@/components/live/live-view";
+import { SkySection } from "@/components/sky/sky-section";
 
 export function LiveTab() {
   const { snapshot, buffer, error } = useTelemetry();
@@ -19,6 +20,7 @@ export function LiveTab() {
       now={now}
       pollIntervalS={settings?.livePollIntervalS ?? 3}
       mockMode={settings?.mockMode ?? null}
+      skySlot={<SkySection supported={Boolean(capabilities?.hasObstructionMap)} />}
     />
   );
 }

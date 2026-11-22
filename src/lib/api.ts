@@ -5,6 +5,7 @@
 import type {
   AiReport,
   ConnectionStatus,
+  DataUsage,
   DiagnosticSummary,
   DishCapabilities,
   DishEvent,
@@ -13,6 +14,7 @@ import type {
   Settings,
   SnowMeltMode,
   TelemetrySnapshot,
+  UptimeStats,
 } from "@/types/models";
 import { normalizeError } from "@/lib/errors";
 
@@ -36,6 +38,9 @@ export interface CommandMap {
   has_api_key: { args: void; result: boolean };
   delete_api_key: { args: void; result: null };
   export_history_csv: { args: { rangeMinutes: number }; result: string | null };
+  get_uptime_stats: { args: void; result: UptimeStats };
+  get_data_usage: { args: { days: number }; result: DataUsage };
+  send_test_notification: { args: void; result: null };
   preview_ai_payload: { args: void; result: DiagnosticSummary };
   analyze_network_with_ai: { args: void; result: AiReport };
   get_last_ai_report: { args: void; result: AiReport | null };
@@ -130,6 +135,9 @@ export const api = {
   deleteApiKey: () => call("delete_api_key").then(() => undefined),
   /** Opens a native save dialog (Tauri only). Returns the saved path, or null if cancelled. */
   exportHistoryCsv: (rangeMinutes: number) => call("export_history_csv", { rangeMinutes }),
+  getUptimeStats: () => call("get_uptime_stats"),
+  getDataUsage: (days: number) => call("get_data_usage", { days }),
+  sendTestNotification: () => call("send_test_notification").then(() => undefined),
   previewAiPayload: () => call("preview_ai_payload"),
   analyzeNetworkWithAi: () => call("analyze_network_with_ai"),
   getLastAiReport: () => call("get_last_ai_report"),

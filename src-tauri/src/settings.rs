@@ -73,6 +73,28 @@ pub fn validate(mut s: Settings) -> Result<Settings, AppError> {
             "livePollIntervalS must be between {MIN_POLL_S} and {MAX_POLL_S}"
         )));
     }
+    if !(1..=28).contains(&s.billing_cycle_day) {
+        return Err(AppError::InvalidInput(
+            "billingCycleDay must be between 1 and 28".into(),
+        ));
+    }
+    if let Some(cap) = s.data_cap_gb
+        && !(cap.is_finite() && cap > 0.0 && cap <= 1_000_000.0)
+    {
+        return Err(AppError::InvalidInput(
+            "dataCapGb must be a positive number".into(),
+        ));
+    }
+    let n = &s.notifications;
+    match (n.quiet_start_hour, n.quiet_end_hour) {
+        (None, None) => {}
+        (Some(a), Some(b)) if a <= 23 && b <= 23 => {}
+        _ => {
+            return Err(AppError::InvalidInput(
+                "quiet hours need both a start and an end hour (0-23)".into(),
+            ));
+        }
+    }
     s.claude_model = s.claude_model.trim().to_string();
     if s.claude_model.is_empty()
         || s.claude_model.len() > 100
@@ -100,7 +122,7 @@ pub fn needs_reconnect(old: &Settings, new: &Settings) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{MockMode, MockProfile};
+    use crate::models::{MockMode, MockProfile, NotificationSettings};
 
     #[test]
     fn defaults_are_read_only_and_valid() {
@@ -124,6 +146,15 @@ mod tests {
         assert!(bad(|s| s.router_address = "::1:9000".into()));
         assert!(bad(|s| s.live_poll_interval_s = 0));
         assert!(bad(|s| s.live_poll_interval_s = 61));
+        assert!(bad(|s| s.billing_cycle_day = 0));
+        assert!(bad(|s| s.billing_cycle_day = 29));
+        assert!(bad(|s| s.data_cap_gb = Some(0.0)));
+        assert!(bad(|s| s.data_cap_gb = Some(f64::NAN)));
+        assert!(bad(|s| s.notifications.quiet_start_hour = Some(22)));
+        assert!(bad(|s| {
+            s.notifications.quiet_start_hour = Some(24);
+            s.notifications.quiet_end_hour = Some(7);
+        }));
         assert!(bad(|s| s.claude_model = " ".into()));
         assert!(bad(|s| s.claude_model = "a b".into()));
     }
@@ -151,6 +182,33 @@ mod tests {
             ..Default::default()
         };
         assert!(validate(bad_dish).is_err(), "dish address stays mandatory");
+    }
+
+    #[test]
+    fn phase45_defaults() {
+        let s = Settings::default();
+        assert!(s.notifications.enabled && s.notifications.outage && s.notifications.data_cap);
+        assert_eq!(s.notifications.quiet_start_hour, None);
+        assert_eq!(s.data_cap_gb, None);
+        assert_eq!(s.billing_cycle_day, 1);
+        // Old settings files get the defaults; partial notification objects too.
+        let old: Settings =
+            serde_json::from_str(r#"{"readOnly": false, "notifications": {"outage": false}}"#)
+                .unwrap();
+        assert!(!old.notifications.outage);
+        assert!(old.notifications.enabled);
+        assert_eq!(old.billing_cycle_day, 1);
+        let ok = Settings {
+            data_cap_gb: Some(250.0),
+            billing_cycle_day: 28,
+            notifications: NotificationSettings {
+                quiet_start_hour: Some(22),
+                quiet_end_hour: Some(7),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert!(validate(ok).is_ok());
     }
 
     #[test]

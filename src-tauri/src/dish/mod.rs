@@ -26,6 +26,8 @@ pub struct DishStatus {
     pub has_alignment_stats: bool,
     /// The status `config` exposes snow-melt settings.
     pub snow_melt_configurable: bool,
+    /// `outage.cause` while the dish reports an outage in progress.
+    pub current_outage_cause: Option<String>,
 }
 
 /// Parsed `get_device_info` response (no identifiers).

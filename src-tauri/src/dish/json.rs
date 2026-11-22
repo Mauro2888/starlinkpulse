@@ -226,6 +226,7 @@ pub fn parse_status(s: &Value, now_ms: i64) -> DishStatus {
         actuators,
         has_alignment_stats,
         snow_melt_configurable,
+        current_outage_cause: s.get("outage").and_then(|o| enum_name(o.get("cause"))),
     }
 }
 
@@ -515,6 +516,13 @@ mod tests {
         assert_eq!(s.dl_bandwidth_restricted_reason, None);
         assert_eq!(s.software_update_state, None);
         assert_eq!(s.disablement_code.as_deref(), Some("OKAY"));
+        let with_outage = json!({"outage": {"cause": "OBSTRUCTED", "startTimestampNs": "1"}});
+        assert_eq!(
+            parse_status(&with_outage, 0)
+                .current_outage_cause
+                .as_deref(),
+            Some("OBSTRUCTED")
+        );
     }
 
     #[test]

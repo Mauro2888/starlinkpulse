@@ -105,6 +105,20 @@ impl EventSink for TraySink {
             tracing::debug!(error = %e, "emit capabilities failed");
         }
     }
+
+    fn notify(&self, n: &crate::notify::Notification) {
+        use tauri_plugin_notification::NotificationExt;
+        if let Err(e) = self
+            .app
+            .notification()
+            .builder()
+            .title(&n.title)
+            .body(&n.body)
+            .show()
+        {
+            tracing::warn!(error = %e, kind = ?n.kind, "could not show notification");
+        }
+    }
 }
 
 /// Builds the tray icon and menu.

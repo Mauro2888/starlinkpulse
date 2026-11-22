@@ -6,12 +6,15 @@ pub mod error;
 pub mod export;
 pub mod keyring_store;
 pub mod models;
+pub mod notify;
 pub mod service;
 pub mod settings;
 pub mod state;
 pub mod storage;
 pub mod time;
 pub mod tray;
+pub mod uptime;
+pub mod usage;
 pub mod write_denials;
 
 use std::sync::Arc;
@@ -38,6 +41,7 @@ pub fn run() {
     init_tracing();
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let state = Arc::new(AppState::new(&data_dir)?);
@@ -79,6 +83,9 @@ pub fn run() {
             commands::preview_ai_payload,
             commands::analyze_network_with_ai,
             commands::get_last_ai_report,
+            commands::get_uptime_stats,
+            commands::get_data_usage,
+            commands::send_test_notification,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

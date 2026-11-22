@@ -9,8 +9,9 @@ use crate::dish::WriteAction;
 use crate::error::{AppError, ClientError};
 use crate::keyring_store;
 use crate::models::{
-    AiReport, CommandError, ConnectionStatus, DiagnosticSummary, DishCapabilities, DishEvent,
-    HistoryPoint, ObstructionMap, Settings, SnowMeltMode, TelemetrySnapshot,
+    AiReport, CommandError, ConnectionStatus, DailyUsage, DataUsage, DiagnosticSummary,
+    DishCapabilities, DishEvent, HistoryPoint, ObstructionMap, Settings, SnowMeltMode,
+    TelemetrySnapshot, UptimeStats,
 };
 use crate::state::{AppState, lock_db};
 use crate::storage::MAX_RANGE_MINUTES;
@@ -269,6 +270,103 @@ pub async fn get_last_ai_report(state: State<'_, Arc<AppState>>) -> CmdResult<Op
             .map_err(|e| AppError::Internal(e.to_string()))?
             .map_err(AppError::from)?,
     )
+}
+
+/// Uptime over 24 h (minute data), 7 d and 30 d (daily table).
+pub async fn uptime_stats(state: &AppState) -> Result<UptimeStats, AppError> {
+    let db = state.current_db().await;
+    let now = now_ms();
+    tokio::task::spawn_blocking(move || {
+        let db = lock_db(&db);
+        let covered = db.covered_seconds(24 * 60, now)?;
+        let (count, out) =
+            crate::uptime::clipped_outages(&db.outages(24 * 60, now)?, now - 86_400_000, now);
+        let mut windows = vec![crate::uptime::window("24h", 86_400.0, covered, count, out)];
+        for (label, days) in [("7d", 7u32), ("30d", 30)] {
+            let (covered, count, out) = db.daily_uptime(days, now)?;
+            windows.push(crate::uptime::window(
+                label,
+                days as f64 * 86_400.0,
+                covered,
+                count,
+                out,
+            ));
+        }
+        Ok::<_, rusqlite::Error>(UptimeStats { windows })
+    })
+    .await
+    .map_err(|e| AppError::Internal(e.to_string()))?
+    .map_err(AppError::from)
+}
+
+/// Estimated usage per local day (newest last, zero-filled) and for the billing cycle.
+pub async fn data_usage(state: &AppState, days: u32) -> Result<DataUsage, AppError> {
+    if !(1..=90).contains(&days) {
+        return Err(AppError::InvalidInput(
+            "days must be between 1 and 90".into(),
+        ));
+    }
+    let settings = state.settings.read().await.clone();
+    let db = state.current_db().await;
+    let now = now_ms();
+    let tz = chrono::Local;
+    let day_keys = crate::usage::last_local_days(now, days, &tz);
+    let cycle_start = crate::usage::cycle_start_ms(now, settings.billing_cycle_day, &tz);
+    let from = day_keys.first().copied().unwrap_or(now).min(cycle_start);
+    let rows = tokio::task::spawn_blocking(move || lock_db(&db).usage_since(from))
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))??;
+    let by_day: std::collections::HashMap<i64, &DailyUsage> =
+        rows.iter().map(|r| (r.day_ms, r)).collect();
+    let daily = day_keys
+        .iter()
+        .map(|d| {
+            by_day.get(d).map(|r| (*r).clone()).unwrap_or(DailyUsage {
+                day_ms: *d,
+                ..Default::default()
+            })
+        })
+        .collect();
+    let cycle = rows.iter().filter(|r| r.day_ms >= cycle_start);
+    let (down, up) = cycle.fold((0.0, 0.0), |(d, u), r| {
+        (d + r.download_bytes, u + r.upload_bytes)
+    });
+    Ok(DataUsage {
+        daily,
+        cycle_start_ms: cycle_start,
+        cycle_download_bytes: down,
+        cycle_upload_bytes: up,
+        cap_gb: settings.data_cap_gb,
+        is_estimate: true,
+    })
+}
+
+#[tauri::command]
+pub async fn get_uptime_stats(state: State<'_, Arc<AppState>>) -> CmdResult<UptimeStats> {
+    Ok(uptime_stats(&state).await?)
+}
+
+#[tauri::command]
+pub async fn get_data_usage(state: State<'_, Arc<AppState>>, days: u32) -> CmdResult<DataUsage> {
+    Ok(data_usage(&state, days).await?)
+}
+
+/// Shows a test notification, bypassing settings, quiet hours, cooldown and mock suppression.
+#[tauri::command]
+pub async fn send_test_notification(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
+    let sink = state
+        .sink
+        .read()
+        .await
+        .clone()
+        .ok_or_else(|| AppError::Internal("notifications not ready yet".into()))?;
+    sink.notify(&crate::notify::Notification {
+        kind: crate::notify::NotificationKind::Test,
+        title: "StarlinkPulse".into(),
+        body: "Notifications are working.".into(),
+        bypass_cooldown: true,
+    });
+    Ok(())
 }
 
 #[tauri::command]

@@ -227,6 +227,89 @@ pub struct Settings {
     /// Hide to tray on window close instead of quitting (default false on Linux, where tray
     /// support depends on the desktop environment).
     pub close_to_tray: bool,
+    pub notifications: NotificationSettings,
+    /// Monthly data cap in GB for usage alerts; `None` = no cap.
+    pub data_cap_gb: Option<f64>,
+    /// Day of month (1-28) when the billing cycle resets.
+    pub billing_cycle_day: u32,
+}
+
+/// Desktop notification preferences.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct NotificationSettings {
+    pub enabled: bool,
+    pub outage: bool,
+    pub obstruction: bool,
+    pub thermal: bool,
+    pub throttle: bool,
+    pub reboot: bool,
+    pub firmware_update: bool,
+    pub data_cap: bool,
+    /// Local hour 0-23; both `None` = no quiet hours.
+    pub quiet_start_hour: Option<u8>,
+    pub quiet_end_hour: Option<u8>,
+}
+
+impl Default for NotificationSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            outage: true,
+            obstruction: true,
+            thermal: true,
+            throttle: true,
+            reboot: true,
+            firmware_update: true,
+            data_cap: true,
+            quiet_start_hour: None,
+            quiet_end_hour: None,
+        }
+    }
+}
+
+/// Uptime over one window ("24h" | "7d" | "30d").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UptimeWindow {
+    pub label: String,
+    pub window_s: f64,
+    /// Seconds covered by data (app running / history available).
+    pub covered_s: f64,
+    /// `None` when coverage is too low to be meaningful.
+    pub uptime_pct: Option<f64>,
+    pub outage_count: u32,
+    pub outage_s: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UptimeStats {
+    pub windows: Vec<UptimeWindow>,
+}
+
+/// Estimated bytes for one local day.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyUsage {
+    /// Local midnight, Unix ms.
+    pub day_ms: i64,
+    pub download_bytes: f64,
+    pub upload_bytes: f64,
+}
+
+/// Estimated data usage (integrated throughput, not billing data).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DataUsage {
+    /// Newest last.
+    pub daily: Vec<DailyUsage>,
+    pub cycle_start_ms: i64,
+    pub cycle_download_bytes: f64,
+    pub cycle_upload_bytes: f64,
+    pub cap_gb: Option<f64>,
+    /// Always true: derived from throughput samples, not billing data.
+    pub is_estimate: bool,
 }
 
 impl Default for Settings {
@@ -240,6 +323,9 @@ impl Default for Settings {
             live_poll_interval_s: 3,
             claude_model: "claude-opus-5-5".into(),
             close_to_tray: !cfg!(target_os = "linux"),
+            notifications: NotificationSettings::default(),
+            data_cap_gb: None,
+            billing_cycle_day: 1,
         }
     }
 }

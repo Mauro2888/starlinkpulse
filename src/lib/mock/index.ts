@@ -15,6 +15,7 @@ import type {
 import { PROFILES, type ProfileSpec } from "@/lib/mock/profiles";
 import { mockReport, mockSummary } from "@/lib/mock/advisor";
 import { mockObstructionMap } from "@/lib/mock/obstruction";
+import { mockUptime, mockUsage } from "@/lib/mock/usage";
 import { isInsufficientHistory } from "@/lib/advisor";
 import type { AiReport, SnowMeltMode } from "@/types/models";
 
@@ -32,6 +33,20 @@ export const DEFAULT_SETTINGS: Settings = {
   livePollIntervalS: 3,
   claudeModel: "claude-opus-5-5",
   closeToTray: true,
+  notifications: {
+    enabled: true,
+    outage: true,
+    obstruction: true,
+    thermal: true,
+    throttle: true,
+    reboot: true,
+    firmwareUpdate: true,
+    dataCap: true,
+    quietStartHour: null,
+    quietEndHour: null,
+  },
+  dataCapGb: 150,
+  billingCycleDay: 1,
 };
 
 function fail(kind: CommandError["kind"], message: string): never {
@@ -45,6 +60,9 @@ function noise(seed: number): number {
 }
 
 function loadSettings(): Settings {
+  // Dev aid: `?mockProfile=obstructed` forces a profile for UI work.
+  const forced = typeof location !== "undefined" ? new URLSearchParams(location.search).get("mockProfile") : null;
+  if (forced && forced in PROFILES) return { ...DEFAULT_SETTINGS, mockProfile: forced as Settings["mockProfile"] };
   try {
     const raw = globalThis.localStorage?.getItem(SETTINGS_KEY);
     if (raw) return { ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Partial<Settings>) };
@@ -140,6 +158,13 @@ export class MockBackend implements Backend {
       case "delete_api_key":
         this.hasKey = false;
         return null;
+      case "get_uptime_stats":
+        return mockUptime(this.profile, this.events(1440), HISTORY_SPAN_MIN * 60 + (Date.now() - this.startMs) / 1000);
+      case "get_data_usage":
+        return mockUsage(this.profile, this.settings, Math.min(90, Math.max(1, Number(args.days) || 31)));
+      case "send_test_notification":
+        // No OS notifications in the browser mock; succeed silently.
+        return null;
       case "preview_ai_payload":
         return mockSummary(this.settings.mockProfile, this.profile);
       case "get_last_ai_report":
@@ -183,6 +208,10 @@ export class MockBackend implements Backend {
     if (!/^[\w.-]+:\d{1,5}$/.test(next.dishAddress)) fail("invalid_input", "Dish address must look like host:port.");
     if (next.routerAddress && !/^[\w.-]+:\d{1,5}$/.test(next.routerAddress)) {
       fail("invalid_input", "Router address must look like host:port.");
+    }
+    if (next.dataCapGb !== null && !(next.dataCapGb > 0)) fail("invalid_input", "Data cap must be a positive number of GB.");
+    if (!(Number.isInteger(next.billingCycleDay) && next.billingCycleDay >= 1 && next.billingCycleDay <= 28)) {
+      fail("invalid_input", "Billing cycle day must be between 1 and 28.");
     }
     if (!(next.livePollIntervalS >= 1 && next.livePollIntervalS <= 60)) {
       fail("invalid_input", "Poll interval must be between 1 and 60 seconds.");

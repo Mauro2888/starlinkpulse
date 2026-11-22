@@ -74,8 +74,9 @@ fn params(profile: MockProfile) -> Params {
         outage_prob: 0.15,
         outage_max_s: 6.0,
         outage_cause: "NO_DOWNLINK",
-        dl_mean_bps: 6_000_000.0,
-        ul_mean_bps: 600_000.0,
+        // Mean usage including idle time (~15-25 GB/day), not link capacity.
+        dl_mean_bps: 1_200_000.0,
+        ul_mean_bps: 150_000.0,
         fraction_obstructed: 0.004,
         throttled: false,
         offline: false,
@@ -86,8 +87,8 @@ fn params(profile: MockProfile) -> Params {
             hardware_version: "rev4_prod1",
             power_w: Some(55.0),
             base_latency: 26.0,
-            dl_mean_bps: 12_000_000.0,
-            ul_mean_bps: 1_200_000.0,
+            dl_mean_bps: 2_000_000.0,
+            ul_mean_bps: 250_000.0,
             ..base
         },
         MockProfile::StandardActuated => Params {
@@ -98,8 +99,8 @@ fn params(profile: MockProfile) -> Params {
             power_w: None,
             base_latency: 32.0,
             jitter: 7.0,
-            dl_mean_bps: 10_000_000.0,
-            ul_mean_bps: 1_000_000.0,
+            dl_mean_bps: 1_600_000.0,
+            ul_mean_bps: 200_000.0,
             ..base
         },
         MockProfile::Obstructed => Params {
@@ -347,6 +348,54 @@ impl MockClient {
         (samples, self.outages_between(from, now_s, boot_s))
     }
 
+    /// Daily aggregates and local-day usage for days `skip_days+1 ..= days` ago (older than
+    /// the per-second backfill), so 7 d / 30 d uptime and data usage have plausible history.
+    /// App coverage varies per day (the app is not always running).
+    pub fn daily_backfill(
+        &self,
+        days: u32,
+        skip_days: u32,
+    ) -> (Vec<crate::storage::DailyAggregate>, Vec<(i64, f64, f64)>) {
+        use crate::time::{DAY_MS, day_floor};
+        if self.p.offline {
+            return (Vec::new(), Vec::new());
+        }
+        let now = now_ms();
+        let mut daily = Vec::new();
+        let mut usage = Vec::new();
+        for back in (skip_days as i64 + 1)..=(days as i64) {
+            let day = day_floor(now) - back * DAY_MS;
+            let coverage = 0.35 + 0.6 * unit(day / DAY_MS, 300);
+            let covered = (86_400.0 * coverage).round();
+            let from = day / 1000;
+            let blocks =
+                from.div_euclid(OUTAGE_BLOCK_S)..(from + 86_400).div_euclid(OUTAGE_BLOCK_S);
+            let outages: Vec<i64> = blocks
+                .filter_map(|b| self.block_outage(b).map(|(_, d)| d))
+                .collect();
+            // Only outages while the app was running are known.
+            let known = ((outages.len() as f64) * coverage).round() as usize;
+            let outage_s: f64 = outages.iter().take(known).map(|d| *d as f64).sum();
+            let dl = self.p.dl_mean_bps * 1.4 / 8.0 * covered * (0.7 + 0.6 * unit(day, 301));
+            let ul = self.p.ul_mean_bps * 1.2 / 8.0 * covered * (0.7 + 0.6 * unit(day, 302));
+            daily.push(crate::storage::DailyAggregate {
+                day_ms: day,
+                samples: covered as u32,
+                latency_avg_ms: Some(self.p.base_latency * 1.05),
+                drop_rate_avg: Some(self.p.drop_prob * 0.3),
+                downlink_bytes: dl,
+                uplink_bytes: ul,
+                energy_wh: self.p.power_w.map(|w| w * covered / 3600.0),
+                outage_count: known as u32,
+                outage_s,
+            });
+            // Local-day key: local midnight of the same calendar date.
+            let local_day = crate::usage::local_day_start_ms(day + 12 * 3_600_000, &chrono::Local);
+            usage.push((local_day, dl, ul));
+        }
+        (daily, usage)
+    }
+
     fn obstruction_value(&self, row: u32, col: u32) -> Option<f32> {
         let c = (MAP_SIZE as f64 - 1.0) / 2.0;
         let (dx, dy) = (col as f64 - c, c - row as f64);
@@ -467,6 +516,11 @@ impl StarlinkClient for MockClient {
             actuators: p.actuators,
             has_alignment_stats: true,
             snow_melt_configurable: true,
+            current_outage_cause: if stowed {
+                Some("STOWED".into())
+            } else {
+                outage.map(str::to_owned)
+            },
         })
     }
 

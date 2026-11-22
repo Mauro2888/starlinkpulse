@@ -20,6 +20,9 @@ All commands are async and return `Result<T, CommandError>`; arguments are camel
 | `stow_dish` / `unstow_dish` | – | `()` — only if `capabilities.canStow` | 2 |
 | `set_snow_melt` | `mode: SnowMeltMode` | `()` | 2 |
 | `export_history_csv` | `rangeMinutes: u32` | `string \| null` (native save dialog; returns saved path, null if cancelled) | 2 |
+| `get_uptime_stats` | – | `UptimeStats` (24h / 7d / 30d) | 4.5 |
+| `get_data_usage` | `days: u32` | `DataUsage` (daily list, newest last) | 4.5 |
+| `send_test_notification` | – | `()` | 4.5 |
 | `set_api_key` | `key: string` | `()` (stored in OS keyring, never logged/returned) | 2 |
 | `has_api_key` | – | `boolean` | 2 |
 | `delete_api_key` | – | `()` | 2 |

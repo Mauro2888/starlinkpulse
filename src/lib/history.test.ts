@@ -4,6 +4,7 @@ import { bucketHistory, historyToCsv, summarizeHistory } from "@/lib/history";
 import { appendSnapshot } from "@/lib/buffer";
 import { explainCause, explainRestriction } from "@/lib/explain";
 import { validateSettings } from "@/lib/settings";
+import { DEFAULT_SETTINGS } from "@/lib/mock";
 
 function pt(minuteMs: number, over: Partial<HistoryPoint> = {}): HistoryPoint {
   return {
@@ -109,6 +110,9 @@ describe("validateSettings", () => {
     livePollIntervalS: 3,
     claudeModel: "claude-sonnet-5-5",
     closeToTray: true,
+    notifications: { ...DEFAULT_SETTINGS.notifications },
+    dataCapGb: null,
+    billingCycleDay: 1,
   };
   it("accepts defaults and an empty router", () => expect(validateSettings(ok)).toEqual({}));
   it("rejects bad addresses and intervals", () => {

@@ -134,6 +134,11 @@ export interface Settings {
   claudeModel: string;
   /** Hide to tray on window close instead of quitting (default false on Linux). */
   closeToTray: boolean;
+  notifications: NotificationSettings;
+  /** Monthly data cap in GB for usage alerts; null = none. */
+  dataCapGb: number | null;
+  /** Day of month (1-28) when the billing cycle resets. */
+  billingCycleDay: number;
 }
 
 export interface ObstructionMap {
@@ -195,4 +200,54 @@ export interface AiReport {
   findings: AiFinding[];
   /** Exact anonymized payload that was sent. */
   payload: DiagnosticSummary;
+}
+
+// ---- Phase 4.5: notifications, uptime, data usage ----
+
+export interface NotificationSettings {
+  enabled: boolean;
+  outage: boolean;
+  obstruction: boolean;
+  thermal: boolean;
+  throttle: boolean;
+  reboot: boolean;
+  firmwareUpdate: boolean;
+  dataCap: boolean;
+  /** Local hour 0-23; both null = no quiet hours. */
+  quietStartHour: number | null;
+  quietEndHour: number | null;
+}
+
+export interface UptimeWindow {
+  /** "24h" | "7d" | "30d" */
+  label: string;
+  windowS: number;
+  /** Seconds covered by data (app running / history available). */
+  coveredS: number;
+  /** null when coverage is too low to be meaningful. */
+  uptimePct: number | null;
+  outageCount: number;
+  outageS: number;
+}
+
+export interface UptimeStats {
+  windows: UptimeWindow[];
+}
+
+export interface DailyUsage {
+  /** Local midnight, Unix ms. */
+  dayMs: number;
+  downloadBytes: number;
+  uploadBytes: number;
+}
+
+export interface DataUsage {
+  daily: DailyUsage[];
+  cycleStartMs: number;
+  cycleDownloadBytes: number;
+  cycleUploadBytes: number;
+  /** Configured cap in GB, null = no cap. */
+  capGb: number | null;
+  /** Estimate disclaimer is required in UI: derived from throughput samples, not billing data. */
+  isEstimate: true;
 }

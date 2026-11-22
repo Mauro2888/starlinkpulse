@@ -1,10 +1,14 @@
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from "react";
-import { Loader2, TriangleAlert } from "lucide-react";
-import type { MockMode, MockProfile, Settings } from "@/types/models";
+import { BellRing, Loader2, TriangleAlert } from "lucide-react";
+import type { MockMode, MockProfile, NotificationSettings, Settings } from "@/types/models";
 import { CLAUDE_MODEL_OPTIONS } from "@/lib/advisor";
+import { api } from "@/lib/api";
+import { toastError, toastSuccess } from "@/lib/notify";
 import {
   MOCK_MODE_LABELS,
   MOCK_PROFILE_LABELS,
+  NOTIFICATION_TYPES,
+  formatHour,
   validateSettings,
   type SettingsErrors,
 } from "@/lib/settings";
@@ -102,6 +106,50 @@ export function SettingsForm({ settings, onSave, readOnlySwitchId = "read-only-s
               onCheckedChange={(v) => set("closeToTray", v)}
             />
           </div>
+        </fieldset>
+
+        <NotificationFields
+          value={draft.notifications}
+          error={errors.quietHours}
+          onChange={(n) => {
+            setDraft((d) => ({ ...d, notifications: n }));
+            setErrors((e) => ({ ...e, quietHours: undefined }));
+          }}
+        />
+
+        <fieldset className="grid gap-3 border-t border-border pt-4 sm:grid-cols-2">
+          <legend className="eyebrow mb-2">Data plan</legend>
+          <Field label="Monthly data cap (GB)" error={errors.dataCapGb} hint="Optional. Used for usage alerts.">
+            {(p) => (
+              <Input
+                {...p}
+                type="number"
+                min={1}
+                step={1}
+                inputMode="numeric"
+                placeholder="No cap"
+                value={draft.dataCapGb === null ? "" : Number.isFinite(draft.dataCapGb) ? draft.dataCapGb : ""}
+                onChange={(e) => set("dataCapGb", e.target.value === "" ? null : Number(e.target.value))}
+                className="num"
+              />
+            )}
+          </Field>
+          <Field label="Cycle resets on day" error={errors.billingCycleDay} hint="Day of the month (1–28), as on your bill.">
+            {(p) => (
+              <Select value={String(draft.billingCycleDay)} onValueChange={(v) => set("billingCycleDay", Number(v))}>
+                <SelectTrigger id={p.id} aria-describedby={p["aria-describedby"]} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
+                    <SelectItem key={d} value={String(d)}>
+                      {d}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </Field>
         </fieldset>
 
         <fieldset className="grid gap-3 border-t border-border pt-4 sm:grid-cols-2">
@@ -317,5 +365,164 @@ function ModelPicker({ value, error, onChange }: { value: string; error?: string
         </div>
       )}
     </div>
+  );
+}
+
+const OFF = "off";
+const HOURS = Array.from({ length: 24 }, (_, h) => h);
+
+function HourSelect({
+  id,
+  value,
+  onChange,
+  disabled,
+  describedBy,
+  invalid,
+}: {
+  invalid?: boolean;
+  id: string;
+  value: number | null;
+  onChange: (h: number | null) => void;
+  disabled?: boolean;
+  describedBy?: string;
+}) {
+  return (
+    <Select
+      value={value === null ? OFF : String(value)}
+      onValueChange={(v) => onChange(v === OFF ? null : Number(v))}
+      disabled={disabled}
+    >
+      <SelectTrigger id={id} aria-describedby={describedBy} aria-invalid={invalid || undefined} className="w-full">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={OFF}>Off</SelectItem>
+        {HOURS.map((h) => (
+          <SelectItem key={h} value={String(h)}>
+            {formatHour(h)}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function NotificationFields({
+  value,
+  error,
+  onChange,
+}: {
+  value: NotificationSettings;
+  error?: string;
+  onChange: (n: NotificationSettings) => void;
+}) {
+  const [testing, setTesting] = useState(false);
+  const set = <K extends keyof NotificationSettings>(k: K, v: NotificationSettings[K]) => onChange({ ...value, [k]: v });
+  const off = !value.enabled;
+
+  const sendTest = async () => {
+    setTesting(true);
+    try {
+      await api.sendTestNotification();
+      toastSuccess("Test notification sent", "Nothing appeared? Allow notifications for StarlinkPulse in your system settings.");
+    } catch (e) {
+      toastError(e, "Test notification failed");
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <fieldset className="flex flex-col gap-3 border-t border-border pt-4">
+      <legend className="eyebrow mb-2">Notifications</legend>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <Label htmlFor="notif-enabled" className="text-sm">
+            Desktop notifications
+          </Label>
+          <p id="notif-enabled-desc" className="mt-0.5 text-xs text-muted-foreground">
+            Alerts for problems with your connection, with a cooldown to avoid repeats.
+          </p>
+        </div>
+        <Switch
+          id="notif-enabled"
+          aria-describedby="notif-enabled-desc"
+          checked={value.enabled}
+          onCheckedChange={(v) => set("enabled", v)}
+        />
+      </div>
+
+      <ul className={cn("grid gap-x-4 gap-y-2.5 sm:grid-cols-2", off && "opacity-60")} aria-label="Notification types">
+        {NOTIFICATION_TYPES.map((t) => {
+          const id = `notif-${t.key}`;
+          return (
+            <li key={t.key} className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <Label htmlFor={id} className="text-xs">
+                  {t.label}
+                </Label>
+                <p id={`${id}-desc`} className="text-[0.6875rem] text-muted-foreground">
+                  {t.hint}
+                </p>
+              </div>
+              <Switch
+                id={id}
+                size="sm"
+                aria-describedby={`${id}-desc`}
+                checked={value[t.key]}
+                disabled={off}
+                onCheckedChange={(v) => set(t.key, v)}
+              />
+            </li>
+          );
+        })}
+      </ul>
+
+      <div className="flex flex-col gap-1.5">
+        <span id="quiet-label" className="text-xs font-medium">
+          Quiet hours
+        </span>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="quiet-start" className="text-[0.6875rem] font-normal text-muted-foreground">
+              From
+            </Label>
+            <HourSelect
+              id="quiet-start"
+              invalid={Boolean(error)}
+              value={value.quietStartHour}
+              disabled={off}
+              describedBy="quiet-desc"
+              onChange={(h) => set("quietStartHour", h)}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="quiet-end" className="text-[0.6875rem] font-normal text-muted-foreground">
+              Until
+            </Label>
+            <HourSelect
+              id="quiet-end"
+              value={value.quietEndHour}
+              disabled={off}
+              describedBy="quiet-desc"
+              onChange={(h) => set("quietEndHour", h)}
+            />
+          </div>
+        </div>
+        <p id="quiet-desc" className={cn("text-[0.6875rem]", error ? "text-critical" : "text-muted-foreground")} role={error ? "alert" : undefined}>
+          {error ??
+            (value.quietStartHour !== null && value.quietEndHour !== null
+              ? `No notifications from ${formatHour(value.quietStartHour)} to ${formatHour(value.quietEndHour)}.`
+              : "Off. Notifications can arrive at any time.")}
+        </p>
+      </div>
+
+      <div>
+        <Button type="button" size="sm" variant="outline" onClick={sendTest} disabled={testing || off}>
+          {testing ? <Loader2 className="animate-spin" aria-hidden /> : <BellRing aria-hidden />}
+          Send test notification
+        </Button>
+      </div>
+    </fieldset>
   );
 }
