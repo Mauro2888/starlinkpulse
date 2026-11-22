@@ -202,6 +202,9 @@ export class MockBackend implements Backend {
         await new Promise((r) => setTimeout(r, 2_000));
         this.updateInstalled = true;
         return null;
+      case "set_alignment_mode":
+        this.setAlignmentMode(Boolean(args.enabled));
+        return null;
       case "send_test_notification":
         // No OS notifications in the browser mock; succeed silently.
         return null;
@@ -359,14 +362,7 @@ export class MockBackend implements Backend {
         avgProlongedObstructionIntervalS: p.obstructed > 0.05 ? 412 : null,
       },
       // Mini is mounted ~11° off and 2° too low; the others are within tolerance.
-      alignment: {
-        azimuthDeg: (this.settings.mockProfile === "mini" ? 166.8 : 179.1) + (Math.random() - 0.5) * 0.4,
-        elevationDeg: (this.settings.mockProfile === "mini" ? 63.9 : 65.6) + (Math.random() - 0.5) * 0.2,
-        desiredAzimuthDeg: 178.0,
-        desiredElevationDeg: 66.0,
-        tiltAngleDeg: p.capabilities.actuators === "yes" ? null : 24.8,
-        uncertaintyDeg: 0.9,
-      },
+      alignment: this.alignmentNow(now, p),
       gpsValid: true,
       gpsSats: 12 + Math.round(Math.random() * 4),
       dlBandwidthRestrictedReason: p.restricted ?? "NO_LIMIT",
@@ -449,7 +445,63 @@ export class MockBackend implements Backend {
     if (this.timer) return;
     this.timer = setInterval(() => {
       if (!this.offline) this.emit("telemetry", this.snapshot(Date.now()));
-    }, this.settings.livePollIntervalS * 1000);
+    }, this.alignActive() ? 1000 : this.settings.livePollIntervalS * 1000);
+  }
+
+  // -- guided alignment (read-only fast polling) ---------------------------
+
+  private alignUntil = 0;
+  private alignStart = 0;
+  private alignOffTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private alignActive(): boolean {
+    return Date.now() < this.alignUntil;
+  }
+
+  private setAlignmentMode(enabled: boolean): void {
+    if (this.alignOffTimer) clearTimeout(this.alignOffTimer);
+    this.alignOffTimer = null;
+    if (enabled) {
+      const fresh = !this.alignActive();
+      this.alignUntil = Date.now() + 600_000;
+      if (fresh) this.alignStart = Date.now();
+      this.alignOffTimer = setTimeout(() => this.setAlignmentMode(false), 600_000);
+    } else {
+      this.alignUntil = 0;
+    }
+    this.stopTimer();
+    if (this.totalListeners() > 0) this.ensureTimer();
+    this.emit("alignment-mode", { enabled, remainingS: enabled ? 600 : 0 });
+  }
+
+  /**
+   * Mini during guided alignment: simulates a person turning the dish in steps
+   * (each ~4° turn reads as "moving" for 2 s), first direction, then tilt.
+   */
+  private alignmentNow(now: number, p: ProfileSpec): TelemetrySnapshot["alignment"] {
+    const base = {
+      desiredAzimuthDeg: 178.0,
+      desiredElevationDeg: 66.0,
+      tiltAngleDeg: p.capabilities.actuators === "yes" ? null : 24.8,
+    };
+    const jitterAz = (Math.random() - 0.5) * 0.4;
+    const jitterEl = (Math.random() - 0.5) * 0.2;
+    if (this.settings.mockProfile !== "mini") {
+      return { ...base, azimuthDeg: 179.1 + jitterAz, elevationDeg: 65.6 + jitterEl, uncertaintyDeg: 0.9, estimationState: "FILTER_CONVERGED" };
+    }
+    if (!this.alignActive() && this.alignStart === 0) {
+      return { ...base, azimuthDeg: 166.8 + jitterAz, elevationDeg: 63.9 + jitterEl, uncertaintyDeg: 0.9, estimationState: "FILTER_CONVERGED" };
+    }
+    const e = (now - this.alignStart) / 1000;
+    const azSteps = Math.min(3, Math.max(0, Math.floor((e - 2) / 6)));
+    const elSteps = e < 24 ? 0 : Math.min(2, Math.floor((e - 24) / 5) + 1);
+    return {
+      ...base,
+      azimuthDeg: 166.8 + azSteps * 3.9 + jitterAz,
+      elevationDeg: 63.9 + elSteps * 1.1 + jitterEl,
+      uncertaintyDeg: e < 3 ? 2.2 : 0.8,
+      estimationState: e < 1.5 ? "FILTER_INITIALIZING" : "FILTER_CONVERGED",
+    };
   }
 
   private stopTimer(): void {

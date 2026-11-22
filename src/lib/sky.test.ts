@@ -67,7 +67,7 @@ describe("obstruction map indexing", () => {
 });
 
 describe("alignment guidance", () => {
-  const base = { tiltAngleDeg: null, uncertaintyDeg: 0.9 };
+  const base = { tiltAngleDeg: null, uncertaintyDeg: 0.9, estimationState: null };
 
   it("wraps azimuth deltas across north", () => {
     expect(azimuthDelta(350, 10)).toBe(20);

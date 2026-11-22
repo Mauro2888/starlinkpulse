@@ -22,6 +22,7 @@ Outside Tauri, `src/lib/api.ts` loads an in-browser mock backend from `src/lib/m
 | Parameter | Effect |
 |---|---|
 | `?mockProfile=mini` | Force a profile and demo mode: `mini`, `standard`, `standard_actuated`, `obstructed`, `throttled`, `offline` |
+| `?mockAlign` | Open guided alignment directly (use with `?mockProfile=mini` to see it converge) |
 | `?mockReport` | Pre-load a saved Diagnose report |
 | `#live`, `#history`, `#controls`, `#diagnose` | Open a specific tab (`#advisor` still works as an alias) |
 

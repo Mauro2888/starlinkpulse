@@ -52,6 +52,8 @@ export interface LiveViewProps {
   mockMode?: MockMode | null;
   /** Obstruction map section, rendered by the container (it fetches its own data). */
   skySlot?: ReactNode;
+  /** Opens guided alignment (only offered for dishes without motors). */
+  onStartGuidedAlignment?: () => void;
 }
 
 function latencyTone(ms: number | null): [StatusTone, string] | null {
@@ -92,7 +94,7 @@ function tile(note: [StatusTone, string] | null) {
   return note ? { tone: note[0], note: note[1] } : { note: undefined, tone: undefined };
 }
 
-export function LiveView({ snapshot, buffer, capabilities, connection, error, now, pollIntervalS, mockMode, skySlot }: LiveViewProps) {
+export function LiveView({ snapshot, buffer, capabilities, connection, error, now, pollIntervalS, mockMode, skySlot, onStartGuidedAlignment }: LiveViewProps) {
   const state = connection?.state ?? null;
 
   if (!snapshot) {
@@ -296,7 +298,7 @@ export function LiveView({ snapshot, buffer, capabilities, connection, error, no
           {/* Only for dishes known to have no motors: "unknown" may be motorized and must not be told to rotate. */}
           {capabilities?.actuators === "no" && alignmentGuidance(s.alignment) && (
             <Section title="Alignment" id="alignment">
-              <AlignmentHelper alignment={s.alignment} />
+              <AlignmentHelper alignment={s.alignment} onStartGuided={onStartGuidedAlignment} />
             </Section>
           )}
 

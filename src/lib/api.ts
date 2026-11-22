@@ -4,6 +4,7 @@
 
 import type {
   AiReport,
+  AlignmentModeEvent,
   ConnectionStatus,
   DataUsage,
   DiagnosticSummary,
@@ -43,6 +44,7 @@ export interface CommandMap {
   check_for_update: { args: void; result: UpdateInfo };
   install_update: { args: void; result: null };
   open_releases_page: { args: void; result: null };
+  set_alignment_mode: { args: { enabled: boolean }; result: null };
   get_data_usage: { args: { days: number }; result: DataUsage };
   send_test_notification: { args: void; result: null };
   run_diagnostics: { args: void; result: AiReport };
@@ -58,6 +60,7 @@ export interface EventMap {
   telemetry: TelemetrySnapshot;
   "connection-status": ConnectionStatus;
   capabilities: DishCapabilities;
+  "alignment-mode": AlignmentModeEvent;
 }
 
 export type CommandName = keyof CommandMap;
@@ -148,6 +151,8 @@ export const api = {
   installUpdate: () => call("install_update").then(() => undefined),
   /** Opens the build's fixed GitHub Releases URL in the system browser. */
   openReleasesPage: () => call("open_releases_page").then(() => undefined),
+  /** Fast (1 s) read-only polling for guided alignment; auto-off after 10 min. */
+  setAlignmentMode: (enabled: boolean) => call("set_alignment_mode", { enabled }).then(() => undefined),
   getDataUsage: (days: number) => call("get_data_usage", { days }),
   sendTestNotification: () => call("send_test_notification").then(() => undefined),
   /** Built-in rule engine: offline, free, no key. */
@@ -166,4 +171,5 @@ export const events = {
   onTelemetry: (h: (s: TelemetrySnapshot) => void) => subscribe("telemetry", h),
   onConnectionStatus: (h: (s: ConnectionStatus) => void) => subscribe("connection-status", h),
   onCapabilities: (h: (c: DishCapabilities) => void) => subscribe("capabilities", h),
+  onAlignmentMode: (h: (e: AlignmentModeEvent) => void) => subscribe("alignment-mode", h),
 } as const;

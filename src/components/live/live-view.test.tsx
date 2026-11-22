@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import type { ConnectionStatus, DishCapabilities, TelemetrySnapshot } from "@/types/models";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -30,6 +30,7 @@ const nullSnapshot: TelemetrySnapshot = {
     desiredElevationDeg: null,
     tiltAngleDeg: null,
     uncertaintyDeg: null,
+    estimationState: null,
   },
   gpsValid: null,
   gpsSats: null,
@@ -119,8 +120,11 @@ describe("LiveView", () => {
       ...nullSnapshot,
       alignment: { ...nullSnapshot.alignment, azimuthDeg: 166.8, desiredAzimuthDeg: 178, elevationDeg: 64, desiredElevationDeg: 66 },
     };
-    renderLive({ snapshot: aligned, capabilities: { ...caps, actuators: "no" } });
+    const onStart = vi.fn();
+    renderLive({ snapshot: aligned, capabilities: { ...caps, actuators: "no" }, onStartGuidedAlignment: onStart });
     expect(screen.getByRole("region", { name: "Alignment" })).toBeInTheDocument();
+    screen.getByRole("button", { name: /Start guided alignment/ }).click();
+    expect(onStart).toHaveBeenCalled();
     cleanup();
     renderLive({ snapshot: aligned, capabilities: { ...caps, actuators: "unknown" } });
     expect(screen.queryByRole("region", { name: "Alignment" })).not.toBeInTheDocument();

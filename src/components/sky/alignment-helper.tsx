@@ -1,4 +1,5 @@
-import { CircleCheck, Compass } from "lucide-react";
+import { CircleCheck, Compass, Footprints } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import type { AlignmentStats } from "@/types/models";
 import { alignmentGuidance, AZ_TOLERANCE_DEG, EL_TOLERANCE_DEG, normalizeAzimuth } from "@/lib/sky";
 import { isNum } from "@/lib/format";
@@ -60,7 +61,14 @@ function ElevationBar({ current, desired }: { current: number; desired: number }
   );
 }
 
-export function AlignmentHelper({ alignment }: { alignment: AlignmentStats }) {
+export function AlignmentHelper({
+  alignment,
+  onStartGuided,
+}: {
+  alignment: AlignmentStats;
+  /** Opens full-window guided alignment (dishes without motors only). */
+  onStartGuided?: () => void;
+}) {
   const g = alignmentGuidance(alignment);
   if (!g || !isNum(alignment.azimuthDeg) || !isNum(alignment.desiredAzimuthDeg)) return null;
 
@@ -135,6 +143,11 @@ export function AlignmentHelper({ alignment }: { alignment: AlignmentStats }) {
           </>
         )}
       </p>
+      {onStartGuided && (
+        <Button size="sm" onClick={onStartGuided} className="self-start">
+          <Footprints aria-hidden /> Start guided alignment
+        </Button>
+      )}
     </div>
   );
 }
