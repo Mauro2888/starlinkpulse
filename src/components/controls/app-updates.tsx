@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { toastError, toastSuccess } from "@/lib/notify";
 import { normalizeError } from "@/lib/errors";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -60,8 +61,9 @@ export function AppUpdates() {
 
   const version = info?.currentVersion ?? __APP_VERSION__;
 
+
   return (
-    <div className="flex flex-col gap-2 rounded-lg bg-muted/40 p-3 ring-1 ring-border" aria-live="polite">
+    <div className="flex flex-col gap-2 rounded-lg bg-muted/40 p-3 ring-1 ring-border">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm">
           Version <span className="num">{version}</span>
@@ -84,21 +86,29 @@ export function AppUpdates() {
           >
             GitHub Releases
           </button>
-          . This build can't update itself.
+          .
         </p>
       )}
 
-      {info?.updaterConfigured && !info.available && (
-        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <CircleCheck className="size-3.5 text-good" aria-hidden /> You're up to date.
-        </p>
-      )}
+      {/* The only live region: a single status line, always mounted so changes are announced. */}
+      <p role="status" aria-live="polite" className={cn("flex items-center gap-1.5 empty:hidden", info?.available ? "text-sm font-medium" : "text-xs text-muted-foreground")}>
+        {checking && !info ? "Checking for updates…" : null}
+        {installing ? "Installing update…" : null}
+        {info && !info.updaterConfigured ? "This build can't update itself." : null}
+        {!installing && info?.updaterConfigured && !info.available && (
+          <>
+            <CircleCheck className="size-3.5 text-good" aria-hidden /> You're up to date.
+          </>
+        )}
+        {!installing && info?.updaterConfigured && info.available && (
+          <>
+            Version <span className="num">{info.latestVersion}</span> is available
+          </>
+        )}
+      </p>
 
       {info?.updaterConfigured && info.available && (
         <div className="flex flex-col gap-2">
-          <p className="text-sm font-medium">
-            Version <span className="num">{info.latestVersion}</span> is available
-          </p>
           {info.notes && (
             <div className="max-h-32 overflow-y-auto rounded-md bg-background/50 px-2.5 py-2 text-xs leading-relaxed whitespace-pre-line text-muted-foreground">
               {info.notes}

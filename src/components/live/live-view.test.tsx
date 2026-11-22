@@ -114,6 +114,21 @@ describe("LiveView", () => {
     expect(screen.queryByText(/^satellites$/i)).not.toBeInTheDocument();
   });
 
+  it("shows alignment guidance only for dishes known to have no motors", () => {
+    const aligned = {
+      ...nullSnapshot,
+      alignment: { ...nullSnapshot.alignment, azimuthDeg: 166.8, desiredAzimuthDeg: 178, elevationDeg: 64, desiredElevationDeg: 66 },
+    };
+    renderLive({ snapshot: aligned, capabilities: { ...caps, actuators: "no" } });
+    expect(screen.getByRole("region", { name: "Alignment" })).toBeInTheDocument();
+    cleanup();
+    renderLive({ snapshot: aligned, capabilities: { ...caps, actuators: "unknown" } });
+    expect(screen.queryByRole("region", { name: "Alignment" })).not.toBeInTheDocument();
+    cleanup();
+    renderLive({ snapshot: aligned, capabilities: { ...caps, actuators: "yes" } });
+    expect(screen.queryByRole("region", { name: "Alignment" })).not.toBeInTheDocument();
+  });
+
   it("hides the power tile when the dish has no power telemetry", () => {
     renderLive({ capabilities: { ...caps, hasPowerTelemetry: false } });
     expect(screen.queryByRole("group", { name: "Power" })).not.toBeInTheDocument();

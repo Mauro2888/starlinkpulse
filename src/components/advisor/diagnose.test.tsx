@@ -251,7 +251,13 @@ describe("providers and privacy", () => {
     for (const u of ["http://localhost:11434", "http://127.0.0.1:1234", "http://[::1]:11434", "https://LOCALHOST"]) {
       expect(isLoopbackUrl(u)).toBe(true);
     }
-    for (const u of ["http://192.168.1.50:11434", "http://my-pc.local:11434", "http://localhost.evil.com", "not a url"]) {
+    for (const u of [
+      "http://192.168.1.50:11434",
+      "http://my-pc.local:11434",
+      "http://localhost.evil.com",
+      "http://ollama.localhost:11434",
+      "not a url",
+    ]) {
       expect(isLoopbackUrl(u)).toBe(false);
     }
   });

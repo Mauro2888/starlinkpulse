@@ -21,18 +21,20 @@ const AUTO_DEG_PER_S = 5;
 const IDLE_MS = 3000;
 const INITIAL: View = { yawDeg: 0, tiltDeg: 50, distance: 3.2 };
 
+const FRAME_MS = 1000 / 30; // ~30 fps is plenty for a slow-moving dome
+const AUTO_ROTATE_MS = 30_000; // idle rotation stops after this; resumes on interaction
+
+/** Points sorted by colour bucket, so each frame sets one fillStyle per bucket. */
 interface Cloud {
   xyz: Float32Array;
-  bucket: Uint8Array;
   count: number;
+  /** groups[k] = [start, end) indices of bucket k in `xyz`. */
+  groups: [number, number][];
 }
 
 /** One point per cell: measured cells coloured by SNR, a sparse grid of faint dots where there's no data. */
-function buildCloud(map: ObstructionMap): Cloud {
-  const n = map.rows * map.cols;
-  const xyz = new Float32Array(n * 3);
-  const bucket = new Uint8Array(n);
-  let count = 0;
+export function buildCloud(map: ObstructionMap): Cloud {
+  const perBucket: number[][] = Array.from({ length: BUCKETS + 1 }, () => []);
   for (let r = 0; r < map.rows; r++) {
     for (let c = 0; c < map.cols; c++) {
       const p = cellToSky(r, c, map);
@@ -41,14 +43,19 @@ function buildCloud(map: ObstructionMap): Cloud {
       const has = isNum(v);
       if (!has && (r % 3 !== 0 || c % 3 !== 0)) continue; // keep "no data" sparse
       const w = skyToVec(p.azimuthDeg, p.elevationDeg);
-      xyz[count * 3] = w.x;
-      xyz[count * 3 + 1] = w.y;
-      xyz[count * 3 + 2] = w.z;
-      bucket[count] = has ? Math.round(Math.min(1, Math.max(0, v)) * 100) : NO_DATA;
-      count++;
+      perBucket[has ? Math.round(Math.min(1, Math.max(0, v)) * 100) : NO_DATA].push(w.x, w.y, w.z);
     }
   }
-  return { xyz, bucket, count };
+  const count = perBucket.reduce((n, a) => n + a.length / 3, 0);
+  const xyz = new Float32Array(count * 3);
+  const groups: [number, number][] = [];
+  let at = 0;
+  for (const arr of perBucket) {
+    xyz.set(arr, at * 3);
+    groups.push([at, at + arr.length / 3]);
+    at += arr.length / 3;
+  }
+  return { xyz, count, groups };
 }
 
 const BUCKET_STYLE = Array.from({ length: BUCKETS }, (_, i) => {
@@ -63,9 +70,17 @@ function cssVar(name: string, fallback: string): string {
   return v || fallback;
 }
 
-function draw(ctx: CanvasRenderingContext2D, size: number, cloud: Cloud, b: Basis, earthFrame: boolean) {
-  const fg = cssVar("--foreground", "#eef");
-  const muted = cssVar("--muted-foreground", "#99a");
+interface Ink {
+  fg: string;
+  muted: string;
+}
+
+function readInk(): Ink {
+  return { fg: cssVar("--foreground", "#eef"), muted: cssVar("--muted-foreground", "#99a") };
+}
+
+function draw(ctx: CanvasRenderingContext2D, size: number, cloud: Cloud, b: Basis, earthFrame: boolean, ink: Ink) {
+  const { fg, muted } = ink;
   const R = size * 0.38;
   const cx = size / 2;
   const cy = size / 2 + size * 0.04;
@@ -103,29 +118,33 @@ function draw(ctx: CanvasRenderingContext2D, size: number, cloud: Cloud, b: Basi
   ring(30, 0.16, [3, 4]);
   ring(60, 0.16, [3, 4]);
 
-  // Points: back hemisphere first (dimmed), then front; one fillStyle per colour bucket.
-  const sizes = new Float32Array(cloud.count);
+  // Points: project once, then draw back hemisphere (dimmed) and front, one fillStyle per bucket.
   const xs = new Float32Array(cloud.count);
   const ys = new Float32Array(cloud.count);
+  const sizes = new Float32Array(cloud.count);
   const front = new Uint8Array(cloud.count);
+  const v = { x: 0, y: 0, z: 0 };
   for (let i = 0; i < cloud.count; i++) {
-    const p = project({ x: cloud.xyz[i * 3], y: cloud.xyz[i * 3 + 1], z: cloud.xyz[i * 3 + 2] }, b);
+    v.x = cloud.xyz[i * 3];
+    v.y = cloud.xyz[i * 3 + 1];
+    v.z = cloud.xyz[i * 3 + 2];
+    const p = project(v, b);
     xs[i] = cx + p.sx * R;
     ys[i] = cy + p.sy * R;
     sizes[i] = Math.max(1, size * 0.0085 * p.scale);
     front[i] = p.depth >= 0 ? 1 : 0;
   }
   for (const pass of [0, 1]) {
-    for (let k = 0; k <= NO_DATA; k++) {
-      ctx.globalAlpha = pass === 0 ? 0.35 : 1;
+    cloud.groups.forEach(([start, end], k) => {
+      if (start === end) return;
       ctx.fillStyle = k === NO_DATA ? muted : BUCKET_STYLE[k];
-      if (k === NO_DATA) ctx.globalAlpha *= 0.18;
-      for (let i = 0; i < cloud.count; i++) {
-        if (cloud.bucket[i] !== k || front[i] !== pass) continue;
-        const s = sizes[i];
-        ctx.fillRect(xs[i] - s / 2, ys[i] - s / 2, s, s);
+      ctx.globalAlpha = (pass === 0 ? 0.35 : 1) * (k === NO_DATA ? 0.18 : 1);
+      for (let i = start; i < end; i++) {
+        if (front[i] !== pass) continue;
+        const sz = sizes[i];
+        ctx.fillRect(xs[i] - sz / 2, ys[i] - sz / 2, sz, sz);
       }
-    }
+    });
   }
   ctx.globalAlpha = 1;
 
@@ -167,7 +186,7 @@ export function DomeView({ map, earthFrame, label, still = false }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const cloud = useMemo(() => buildCloud(map), [map]);
   const view = useRef<View>({ ...INITIAL });
-  const state = useRef({ dirty: true, visible: true, lastInteract: 0, raf: 0, size: 0, last: 0 });
+  const state = useRef({ dirty: true, visible: true, lastInteract: 0, raf: 0, size: 0, last: 0, lastDraw: 0 });
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -176,6 +195,19 @@ export function DomeView({ map, earthFrame, label, still = false }: Props) {
     if (!canvas || !wrap || !ctx) return;
     const st = state.current;
     st.dirty = true;
+    // Start the idle-rotation window now; it ends AUTO_ROTATE_MS after the last interaction.
+    st.lastInteract = performance.now() - IDLE_MS;
+    let ink = readInk();
+    // Re-read theme colours when the root class/style changes (theme switch).
+    const themeObserver =
+      typeof MutationObserver !== "undefined"
+        ? new MutationObserver(() => {
+            ink = readInk();
+            st.dirty = true;
+            kick();
+          })
+        : null;
+    themeObserver?.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style"] });
 
     const resize = () => {
       const css = wrap.clientWidth || 260;
@@ -189,19 +221,28 @@ export function DomeView({ map, earthFrame, label, still = false }: Props) {
       kick();
     };
 
-    const shouldAnimate = () =>
-      !still && st.visible && document.visibilityState === "visible" && performance.now() - st.lastInteract > IDLE_MS;
+    const shouldAnimate = () => {
+      if (still || !st.visible || document.visibilityState !== "visible") return false;
+      const idle = performance.now() - st.lastInteract;
+      return idle > IDLE_MS && idle < IDLE_MS + AUTO_ROTATE_MS;
+    };
 
     const frame = (t: number) => {
       st.raf = 0;
-      const dt = st.last ? Math.min(100, t - st.last) : 16;
+      // Cap at ~30 fps: skip this tick if the last draw was too recent.
+      if (st.lastDraw && t - st.lastDraw < FRAME_MS - 1) {
+        st.raf = requestAnimationFrame(frame);
+        return;
+      }
+      st.lastDraw = t;
+      const dt = st.last ? Math.min(100, t - st.last) : FRAME_MS;
       st.last = t;
       if (shouldAnimate()) {
         view.current.yawDeg = (view.current.yawDeg + (AUTO_DEG_PER_S * dt) / 1000) % 360;
         st.dirty = true;
       }
       if (st.dirty && st.size > 0) {
-        draw(ctx, st.size, cloud, viewBasis(view.current), earthFrame);
+        draw(ctx, st.size, cloud, viewBasis(view.current), earthFrame, ink);
         st.dirty = false;
       }
       // Keep the loop alive only while something can change.
@@ -209,6 +250,7 @@ export function DomeView({ map, earthFrame, label, still = false }: Props) {
         st.raf = requestAnimationFrame(frame);
       } else {
         st.last = 0;
+        st.lastDraw = 0;
       }
     };
 
@@ -275,6 +317,7 @@ export function DomeView({ map, earthFrame, label, still = false }: Props) {
       if (st.raf) cancelAnimationFrame(st.raf);
       st.raf = 0;
       ro?.disconnect();
+      themeObserver?.disconnect();
       io?.disconnect();
       document.removeEventListener("visibilitychange", onVis);
       canvas.removeEventListener("pointerdown", down);

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { clampTilt, MAX_TILT, project, skyToVec, viewBasis } from "@/lib/dome";
 import { resolveSkyMode } from "@/lib/view-pref";
+import { buildCloud } from "@/components/sky/dome-view";
+import { mockObstructionMap } from "@/lib/mock/obstruction";
 
 const b = (yawDeg: number, tiltDeg: number, distance = 3) => viewBasis({ yawDeg, tiltDeg, distance });
 
@@ -67,5 +69,25 @@ describe("sky view mode preference", () => {
   });
   it("forces 2D with reduced motion", () => {
     expect(resolveSkyMode("3d", true, true)).toBe("2d");
+  });
+});
+
+describe("dome point cloud", () => {
+  it("groups points by colour bucket once, contiguously and without losing any", () => {
+    const map = mockObstructionMap("obstructed");
+    const cloud = buildCloud(map);
+    expect(cloud.groups).toHaveLength(102); // 101 SNR buckets + no-data
+    let expectStart = 0;
+    for (const [start, end] of cloud.groups) {
+      expect(start).toBe(expectStart);
+      expect(end).toBeGreaterThanOrEqual(start);
+      expectStart = end;
+    }
+    expect(expectStart).toBe(cloud.count);
+    const measured = map.snr.filter((v) => v !== null).length;
+    const [noStart, noEnd] = cloud.groups[101];
+    expect(noStart).toBe(measured); // every measured cell becomes exactly one point
+    expect(noEnd - noStart).toBeGreaterThan(0);
+    expect(cloud.count).toBeLessThanOrEqual(15_129);
   });
 });

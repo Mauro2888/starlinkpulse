@@ -293,7 +293,8 @@ export function LiveView({ snapshot, buffer, capabilities, connection, error, no
 
           {skySlot}
 
-          {capabilities?.actuators !== "yes" && alignmentGuidance(s.alignment) && (
+          {/* Only for dishes known to have no motors: "unknown" may be motorized and must not be told to rotate. */}
+          {capabilities?.actuators === "no" && alignmentGuidance(s.alignment) && (
             <Section title="Alignment" id="alignment">
               <AlignmentHelper alignment={s.alignment} />
             </Section>

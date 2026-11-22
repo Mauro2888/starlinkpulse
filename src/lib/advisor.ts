@@ -150,7 +150,7 @@ export const SOURCE_LABELS: Record<ReportSource, string> = {
   local: "Local model",
 };
 
-/** True for localhost, 127.0.0.0/8 and ::1. Invalid URLs are not loopback. */
+/** True only for `localhost`, 127.0.0.0/8 and ::1. `*.localhost` and invalid URLs count as remote. */
 export function isLoopbackUrl(url: string): boolean {
   let host: string;
   try {
@@ -159,7 +159,7 @@ export function isLoopbackUrl(url: string): boolean {
     return false;
   }
   host = host.replace(/^\[|\]$/g, "");
-  return host === "localhost" || host.endsWith(".localhost") || host === "::1" || /^127(\.\d{1,3}){3}$/.test(host);
+  return host === "localhost" || host === "::1" || /^127(\.\d{1,3}){3}$/.test(host);
 }
 
 export function isHttpUrl(url: string): boolean {
