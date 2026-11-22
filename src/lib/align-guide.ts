@@ -58,9 +58,14 @@ export function toSample(a: AlignmentStats, t: number): AlignSample | null {
   };
 }
 
-/** Unknown estimator state counts as converged; any known non-converged state does not. */
+/**
+ * Only "FILTER_CONVERGED" is confirmed on real dishes; any other reported state
+ * (e.g. "FILTER_CONVERGING") means the estimate isn't settled. A missing state
+ * (null) doesn't block: the uncertainty and jump checks decide instead, so
+ * firmware that never reports it isn't stuck on "Hold still".
+ */
 export function isConverged(state: string | null): boolean {
-  return state == null || /CONVERGED/i.test(state);
+  return state === null || state === "FILTER_CONVERGED";
 }
 
 /** Largest change in azimuth or elevation between the newest sample and others in the last 2 s. */

@@ -73,9 +73,19 @@ describe("hold-still gating", () => {
     expect(g.phase).toEqual({ kind: "hold", reason: "uncertain" });
   });
 
-  it("holds while the estimator has not converged, but treats unknown as converged", () => {
-    expect(feed([s(0, 166.8, 63.9, { estimation: "FILTER_INITIALIZING" })]).phase).toEqual({ kind: "hold", reason: "estimating" });
-    expect(feed([s(0, 166.8, 63.9, { estimation: null })]).phase.kind).toBe("direction");
+  it("holds for any reported state other than FILTER_CONVERGED", () => {
+    for (const estimation of ["FILTER_INITIALIZING", "FILTER_CONVERGING"]) {
+      expect(feed([s(0, 166.8, 63.9, { estimation })]).phase).toEqual({ kind: "hold", reason: "estimating" });
+    }
+    expect(feed([s(0, 166.8, 63.9, { estimation: "FILTER_CONVERGED" })]).phase.kind).toBe("direction");
+  });
+
+  it("with no reported state, relies on uncertainty and jumps", () => {
+    expect(feed([s(0, 166.8, 63.9, { estimation: null, uncertainty: 0.8 })]).phase.kind).toBe("direction");
+    expect(feed([s(0, 166.8, 63.9, { estimation: null, uncertainty: 2.2 })]).phase).toEqual({ kind: "hold", reason: "uncertain" });
+    expect(
+      feed([s(0, 166.8, 63.9, { estimation: null }), s(1000, 171, 63.9, { estimation: null })]).phase,
+    ).toEqual({ kind: "hold", reason: "moving" });
   });
 
   it("holds after a jump of more than 3° in the last 2 s, then gives directions again", () => {
