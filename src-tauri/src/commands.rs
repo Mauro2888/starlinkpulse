@@ -276,16 +276,18 @@ pub async fn list_local_models(state: State<'_, Arc<AppState>>) -> CmdResult<Vec
     Ok(crate::ai::list_local_models(&state).await?)
 }
 
-/// Last report of the built-in rule engine (`run_diagnostics`), if any.
+/// Last report of the built-in rule engine (`run_diagnostics`) for the active data source.
+pub async fn last_rules_report(state: &AppState) -> Result<Option<AiReport>, AppError> {
+    let db = state.current_db().await;
+    tokio::task::spawn_blocking(move || lock_db(&db).last_rules_report())
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?
+        .map_err(AppError::from)
+}
+
 #[tauri::command]
 pub async fn get_last_rules_report(state: State<'_, Arc<AppState>>) -> CmdResult<Option<AiReport>> {
-    let db = state.current_db().await;
-    Ok(
-        tokio::task::spawn_blocking(move || lock_db(&db).last_rules_report())
-            .await
-            .map_err(|e| AppError::Internal(e.to_string()))?
-            .map_err(AppError::from)?,
-    )
+    Ok(last_rules_report(&state).await?)
 }
 
 #[tauri::command]
@@ -758,5 +760,33 @@ mod tests {
         let ev = history_events(&state, 60).await.unwrap();
         assert_eq!(ev.len(), 1);
         assert_eq!(ev[0].cause, "BOOTING");
+    }
+
+    #[tokio::test]
+    async fn last_rules_report_roundtrip_and_source_separation() {
+        let (state, _mock) = state_with_mock(MockProfile::Mini, true).await;
+        assert_eq!(last_rules_report(&state).await.unwrap(), None);
+        // Seed 90 minutes of mock history, then run the rule engine.
+        let now = now_ms();
+        let pts: Vec<HistoryPoint> = (1..=90)
+            .map(|i| HistoryPoint {
+                minute_ms: crate::time::minute_floor(now) - i * crate::time::MINUTE_MS,
+                samples: 60,
+                latency_avg_ms: Some(30.0),
+                ..Default::default()
+            })
+            .collect();
+        lock_db(&state.mock_db)
+            .insert_backfill(&pts, &[], now)
+            .unwrap();
+        let report = crate::ai::run_diagnostics(&state).await.unwrap();
+        assert_eq!(report.source, crate::models::ReportSource::Rules);
+        assert_eq!(last_rules_report(&state).await.unwrap(), Some(report));
+        // The AI slot and the real dish's database are untouched.
+        assert_eq!(lock_db(&state.mock_db).last_ai_report().unwrap(), None);
+        assert_eq!(lock_db(&state.db).last_rules_report().unwrap(), None);
+        // With the mock gone the real database is read: nothing there.
+        *state.client.write().await = None;
+        assert_eq!(last_rules_report(&state).await.unwrap(), None);
     }
 }
