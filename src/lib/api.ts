@@ -42,6 +42,7 @@ export interface CommandMap {
   get_uptime_stats: { args: void; result: UptimeStats };
   check_for_update: { args: void; result: UpdateInfo };
   install_update: { args: void; result: null };
+  open_releases_page: { args: void; result: null };
   get_data_usage: { args: { days: number }; result: DataUsage };
   send_test_notification: { args: void; result: null };
   run_diagnostics: { args: void; result: AiReport };
@@ -145,6 +146,8 @@ export const api = {
   checkForUpdate: () => call("check_for_update"),
   /** Downloads, verifies, installs and restarts the app. */
   installUpdate: () => call("install_update").then(() => undefined),
+  /** Opens the build's fixed GitHub Releases URL in the system browser. */
+  openReleasesPage: () => call("open_releases_page").then(() => undefined),
   getDataUsage: (days: number) => call("get_data_usage", { days }),
   sendTestNotification: () => call("send_test_notification").then(() => undefined),
   /** Built-in rule engine: offline, free, no key. */

@@ -3,6 +3,8 @@ import { CircleCheck, Download, Loader2, RefreshCw } from "lucide-react";
 import type { UpdateInfo } from "@/types/models";
 import { api } from "@/lib/api";
 import { toastError, toastSuccess } from "@/lib/notify";
+import { normalizeError } from "@/lib/errors";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -14,8 +16,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-
-const RELEASES_URL = import.meta.env.VITE_RELEASES_URL ?? "";
 
 /** Current version, manual update check and install (with confirmation). */
 export function AppUpdates() {
@@ -48,6 +48,16 @@ export function AppUpdates() {
     }
   };
 
+  const openReleases = async () => {
+    try {
+      await api.openReleasesPage();
+    } catch (e) {
+      const err = normalizeError(e);
+      if (err.kind === "invalid_input") toast.info("Releases page not configured in this build");
+      else toastError(err, "Couldn't open the releases page");
+    }
+  };
+
   const version = info?.currentVersion ?? __APP_VERSION__;
 
   return (
@@ -67,13 +77,13 @@ export function AppUpdates() {
       {info && !info.updaterConfigured && (
         <p className="text-xs text-muted-foreground">
           Updates: download new versions from{" "}
-          {RELEASES_URL ? (
-            <a href={RELEASES_URL} target="_blank" rel="noreferrer" className="font-medium text-primary underline-offset-2 hover:underline">
-              GitHub Releases
-            </a>
-          ) : (
-            <span className="font-medium text-foreground">GitHub Releases</span>
-          )}
+          <button
+            type="button"
+            onClick={() => void openReleases()}
+            className="rounded-sm font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-2"
+          >
+            GitHub Releases
+          </button>
           . This build can't update itself.
         </p>
       )}

@@ -191,6 +191,13 @@ export class MockBackend implements Backend {
             : null,
         };
       }
+      case "open_releases_page": {
+        // Browser mock only: VITE_RELEASES_URL as a stand-in for the backend's fixed URL.
+        const url = import.meta.env.VITE_RELEASES_URL;
+        if (!url) fail("invalid_input", "No releases URL configured.");
+        window.open(url, "_blank", "noopener,noreferrer");
+        return null;
+      }
       case "install_update":
         await new Promise((r) => setTimeout(r, 2_000));
         this.updateInstalled = true;
