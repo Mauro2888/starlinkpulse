@@ -294,7 +294,7 @@ impl AnthropicClient {
 
     /// Custom endpoint (tests).
     pub fn with_base_url(base_url: &str, retry_backoff: Duration) -> Result<Self, AppError> {
-        let http = reqwest::Client::builder()
+        let http = super::http::client_builder()
             .timeout(TIMEOUT)
             .connect_timeout(Duration::from_secs(15))
             .user_agent(concat!("StarlinkPulse/", env!("CARGO_PKG_VERSION")))
@@ -346,13 +346,19 @@ impl AnthropicClient {
                 .get("retry-after")
                 .and_then(|h| h.to_str().ok())
                 .map(str::to_owned);
-            let text = resp.text().await.map_err(|e| {
-                if e.is_timeout() {
-                    AppError::Network("The Anthropic API did not answer in time.".into())
-                } else {
-                    AppError::Network("Connection to the Anthropic API was interrupted.".into())
-                }
-            })?;
+            let text = super::http::read_capped(resp, super::http::MAX_BODY_BYTES)
+                .await
+                .map_err(|e| match e {
+                    super::http::BodyError::TooLarge => {
+                        AppError::AiInvalidResponse("the API answer is too large".into())
+                    }
+                    super::http::BodyError::Timeout => {
+                        AppError::Network("The Anthropic API did not answer in time.".into())
+                    }
+                    super::http::BodyError::Interrupted => {
+                        AppError::Network("Connection to the Anthropic API was interrupted.".into())
+                    }
+                })?;
             tracing::debug!(status, attempt, "anthropic response");
             if (200..300).contains(&status) {
                 return parse_success(&text);

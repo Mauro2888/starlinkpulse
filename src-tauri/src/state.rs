@@ -60,6 +60,8 @@ pub struct AppState {
     pub write_denials: Mutex<WriteDenials>,
     /// Event sink, set by the service (used by commands to emit `capabilities`).
     pub sink: RwLock<Option<Arc<dyn EventSink>>>,
+    /// Dish address the notification markers belong to.
+    pub notified_dish_address: Mutex<Option<String>>,
     /// Notification decisions (transitions, cooldown).
     pub notifier: Mutex<crate::notify::NotificationEngine>,
     /// OS login item (launch at login); set at startup by the app.
@@ -131,6 +133,7 @@ impl AppState {
             ai_lock: tokio::sync::Mutex::new(()),
             login_item: RwLock::new(None),
             notifier: Mutex::new(crate::notify::NotificationEngine::new()),
+            notified_dish_address: Mutex::new(None),
             reconnect: Notify::new(),
         })
     }

@@ -97,7 +97,8 @@ jobs:
           ')
           if [ -n "${TAURI_SIGNING_PRIVATE_KEY}" ] && [ "$configured" = "true" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
-            echo "args=--config src-tauri/tauri.updater.conf.json" >> "$GITHUB_OUTPUT"
+            # Absolute path: tauri-action may run the CLI from another working directory.
+            echo "args=--config ${{ github.workspace }}/src-tauri/tauri.updater.conf.json" >> "$GITHUB_OUTPUT"
           elif [ -z "${TAURI_SIGNING_PRIVATE_KEY}" ] && [ "$configured" = "false" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "args=" >> "$GITHUB_OUTPUT"
@@ -111,6 +112,7 @@ jobs:
           fi
 
       - uses: tauri-apps/tauri-action@v0
+        id: tauri
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # macOS code signing and notarization (optional):
@@ -130,3 +132,24 @@ jobs:
           prerelease: false
           includeUpdaterJson: ${{ steps.updater.outputs.enabled == 'true' }}
           args: ${{ matrix.args }} ${{ steps.updater.outputs.args }}
+
+      # If the updater is enabled, this platform must have produced signatures and the draft
+      # release must contain latest.json; otherwise installed apps could not update.
+      - name: Verify updater artifacts
+        if: steps.updater.outputs.enabled == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARTIFACTS: ${{ steps.tauri.outputs.artifactPaths }}
+          RELEASE_ID: ${{ steps.tauri.outputs.releaseId }}
+        run: |
+          sigs=$(node -e 'const a = JSON.parse(process.env.ARTIFACTS || "[]"); console.log(a.filter(p => p.endsWith(".sig")).length)')
+          if [ "$sigs" -eq 0 ]; then
+            echo "::error::Updater enabled but no .sig files were produced for ${{ matrix.name }}"
+            exit 1
+          fi
+          if ! gh api "repos/${{ github.repository }}/releases/${RELEASE_ID}/assets" --jq '.[].name' | grep -qx 'latest.json'; then
+            echo "::error::Updater enabled but latest.json is missing from the draft release"
+            exit 1
+          fi
+          echo "Updater artifacts OK: ${sigs} signature(s), latest.json present"

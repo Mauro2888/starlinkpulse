@@ -95,15 +95,12 @@ pub fn validate(mut s: Settings) -> Result<Settings, AppError> {
             ));
         }
     }
-    s.local_ai_url = s.local_ai_url.trim().trim_end_matches('/').to_string();
-    match reqwest::Url::parse(&s.local_ai_url) {
-        Ok(u) if matches!(u.scheme(), "http" | "https") && u.host_str().is_some() => {}
-        _ => {
-            return Err(AppError::InvalidInput(
-                "localAiUrl must be an http:// or https:// URL".into(),
-            ));
-        }
-    }
+    // scheme://host[:port][/path] only: no user info, query or fragment.
+    s.local_ai_url = crate::ai::http::validate_base_url(&s.local_ai_url).map_err(|e| {
+        AppError::InvalidInput(format!(
+            "localAiUrl must be an http(s)://host[:port][/path] URL: {e}"
+        ))
+    })?;
     s.local_ai_model = s.local_ai_model.trim().to_string();
     if s.local_ai_model.len() > 200 || s.local_ai_model.chars().any(char::is_control) {
         return Err(AppError::InvalidInput(
@@ -222,6 +219,9 @@ mod tests {
             "ftp://x",
             "file:///etc/passwd",
             "http://",
+            "http://user:pw@localhost:11434",
+            "http://localhost:11434/?model=x",
+            "http://localhost:11434/#x",
         ] {
             let s = Settings {
                 local_ai_url: bad.into(),

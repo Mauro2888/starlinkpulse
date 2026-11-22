@@ -78,6 +78,23 @@ fn weighted_percentile(
     vals.last().map(|v| v.0)
 }
 
+/// Sample-weighted latency p95 (per-minute p95, falling back to the average) of the minutes
+/// of the window that fall in local `hour`.
+pub fn hour_latency_p95<Tz: chrono::TimeZone>(
+    minutes: &[HistoryPoint],
+    now_ms: i64,
+    hour: u8,
+    tz: &Tz,
+) -> Option<f64> {
+    let start = now_ms - WINDOW_HOURS as i64 * 60 * MINUTE_MS;
+    let sel: Vec<&HistoryPoint> = minutes
+        .iter()
+        .filter(|m| m.minute_ms >= start && m.samples > 0)
+        .filter(|m| crate::usage::local_hour(m.minute_ms, tz) == hour)
+        .collect();
+    weighted(&sel, |m| m.latency_p95_ms.or(m.latency_avg_ms))
+}
+
 /// Minutes in the window that contain at least one sample.
 pub fn history_minutes(minutes: &[HistoryPoint], now_ms: i64) -> u32 {
     let start = now_ms - WINDOW_HOURS as i64 * 60 * MINUTE_MS;
@@ -408,6 +425,23 @@ mod tests {
             &EuLike,
         );
         assert_eq!(s.worst_hours, vec![22, 17]);
+    }
+
+    #[test]
+    fn worst_hour_p95_helper() {
+        let pts: Vec<HistoryPoint> = (0..120)
+            .map(|i| HistoryPoint {
+                minute_ms: DAY0 + i * MINUTE_MS,
+                samples: 60,
+                latency_avg_ms: Some(30.0),
+                latency_p95_ms: Some(if i < 60 { 40.0 } else { 90.0 }),
+                ..Default::default()
+            })
+            .collect();
+        let tz = chrono::Utc;
+        assert_eq!(hour_latency_p95(&pts, DAY0 + 2 * HOUR, 0, &tz), Some(40.0));
+        assert_eq!(hour_latency_p95(&pts, DAY0 + 2 * HOUR, 1, &tz), Some(90.0));
+        assert_eq!(hour_latency_p95(&pts, DAY0 + 2 * HOUR, 5, &tz), None);
     }
 
     #[test]

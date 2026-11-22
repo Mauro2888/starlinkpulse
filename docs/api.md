@@ -31,9 +31,9 @@ All commands are async and return `Result<T, CommandError>`; arguments are camel
 | `delete_api_key` | – | `()` | 2 |
 | `run_diagnostics` | – | `AiReport` with `source: "rules"` (built-in rule engine, offline, no key; `insufficient_data` if < 60 min) | 4.6 |
 | `get_last_rules_report` | – | `AiReport \| null` (last `run_diagnostics` result) | 4.6 |
-| `list_local_models` | – | `string[]` (models on the configured local server; `ai_unavailable` if unreachable) | 4.6 |
+| `list_local_models` | – | `string[]` (models on the configured local server; `ai_unavailable` if unreachable; `invalid_input` if `localAiUrl` is not a valid `http(s)://host[:port][/path]`) | 4.6 |
 | `preview_ai_payload` | – | `DiagnosticSummary` (exactly what would be sent; no network call) | 4 |
-| `analyze_network_with_ai` | `payload: DiagnosticSummary` (exactly the previewed payload; backend re-validates shape/limits and rejects `isSimulated` mismatch with the current source) | `AiReport` (errors: `no_api_key`, `ai_auth`, `ai_rate_limit`, `ai_unavailable`, `ai_refused`, `ai_invalid_response`, `offline`) | 4 |
+| `analyze_network_with_ai` | `payload: DiagnosticSummary` (exactly the previewed payload; backend re-validates shape/limits and rejects `isSimulated` mismatch with the current source) | `AiReport` (errors: `no_api_key`, `ai_auth`, `ai_rate_limit`, `ai_unavailable`, `ai_refused`, `ai_invalid_response`, `offline`; `insufficient_data` when `historyMinutes` < 60; `invalid_input` when: AI provider is off, an analysis is already running, `isSimulated` differs from the current source, payload fields out of range/invalid, local model not set or not available, local URL invalid, or the API rejected the request (400/404)). `ruleFindings` in the payload are recomputed server-side. | 4 |
 | `get_last_ai_report` | – | `AiReport \| null` (persisted last report) | 4 |
 
 ## Events (backend → frontend)

@@ -19,13 +19,14 @@ of reboots (BOOTING outages) in the window.
 | Limited data | configuration | `historyMinutes` < 720 (12 h) | info |
 | Dish view obstructed | obstruction | `fractionObstructed` > 1 % **or** OBSTRUCTED outages ≥ 30 s | warning |
 | | | `fractionObstructed` > 3 % **or** OBSTRUCTED outages ≥ 300 s | critical |
-| Dish not aimed where Starlink recommends | configuration | dishes without motors only; \|`azimuthCorrectionDeg`\| > 2° or \|`elevationCorrectionDeg`\| > 1° (correction = recommended − actual) | warning |
-| Speed limited by your plan | starlink_network | `throttledMinutes` > 0 (POLICY_LIMIT = plan deprioritization or data limit). Detail adds "almost all the time" when ≥ 90 % of recorded minutes, and the worst hours | info |
-| Outages on the Starlink side | starlink_network | no significant obstruction (see above) and NO_SCHEDULE + NO_DOWNLINK + NO_PINGS + SKY_SEARCH + NETWORK_ISSUE ≥ 60 s | warning |
+| Dish not aimed where Starlink recommends | configuration | dishes known to have **no motors** (`hasActuators = NO`); \|`azimuthCorrectionDeg`\| > 2° or \|`elevationCorrectionDeg`\| > 1° (correction = recommended − actual); gives exact rotate/tilt actions | warning |
+| Dish orientation differs from the recommendation | configuration | motors **unknown**, same thresholds: numbers only, no rotate/tilt instruction ("if your dish has no motors, use the alignment helper"). Dishes with motors: nothing | info |
+| Speed limited by your plan | starlink_network | `throttledMinutes` > 0 (POLICY_LIMIT = plan deprioritization or data limit). Detail adds "almost all the time" when ≥ 90 % of recorded minutes (no hour list: deprioritization is not a congestion claim) | info |
+| Outages on the Starlink side | starlink_network | no significant obstruction (see above) and NO_SCHEDULE + NO_DOWNLINK + NO_PINGS + SKY_SEARCH + NETWORK_ISSUE ≥ 60 s. Says "clear view" only when `fractionObstructed` was measured and is ≤ 1 %, otherwise "no significant obstruction was measured"; notes that SKY_SEARCH can follow a restart | warning |
 | | | same, ≥ 600 s | critical |
 | Frequent dish restarts | hardware | reboots in 24 h ≥ 2 (one nightly update reboot is normal) | warning |
 | | | reboots ≥ 4 | critical |
-| Slow or unstable Starlink connection | starlink_network | no significant obstruction and (latency p95 > 100 ms or drop rate > 1 %) | warning |
+| Slow or unstable Starlink connection | starlink_network | no significant obstruction and (latency p95 > 100 ms or drop rate > 1 %). Congestion is mentioned only when the worst local hour's p95 > 1.5 × the 24 h average latency | warning |
 | | | p95 > 200 ms or drop rate > 5 % | critical |
 | Weak Wi-Fi signal | wifi | weakest Wi-Fi client < -70 dBm (Starlink router only) | warning |
 | | | < -80 dBm | critical |

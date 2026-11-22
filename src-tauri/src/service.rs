@@ -221,6 +221,23 @@ async fn session(state: &Arc<AppState>, settings: &Settings, sink: &Arc<dyn Even
     // Drop the previous client and its capabilities before anything else (no write can be
     // authorized by stale capabilities of another dish or of the mock).
     let session_id = state.begin_session().await;
+    // Another dish address: its uptime/bootcount must not be compared with the old dish.
+    let address_changed = {
+        let mut addr = state
+            .notified_dish_address
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        let changed = addr.as_deref() != Some(settings.dish_address.as_str());
+        *addr = Some(settings.dish_address.clone());
+        changed
+    };
+    if address_changed {
+        state
+            .notifier
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .forget_dish();
+    }
     sink.capabilities(&state.capabilities.read().await.clone());
     set_status(state, sink, |s| {
         s.state = ConnectionState::Connecting;

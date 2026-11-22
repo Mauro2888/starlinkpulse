@@ -169,6 +169,17 @@ impl NotificationEngine {
         *self = kept;
     }
 
+    /// Forgets everything tied to a specific dish (called when the dish address changes), so
+    /// another dish's uptime is not mistaken for a reboot.
+    pub fn forget_dish(&mut self) {
+        self.last_uptime = None;
+        self.last_bootcount = None;
+        self.unreachable_since = None;
+        self.unreachable_alerted = false;
+        self.unreachable_delivered = false;
+        self.initialized = false;
+    }
+
     /// Reboot detection from uptime drop or bootcount change; updates the markers.
     fn check_reboot(
         &mut self,
@@ -265,24 +276,36 @@ impl NotificationEngine {
             || snap.alerts.iter().any(|a| a == "installPending");
 
         let mut out = Vec::new();
-        // The dish answers again.
-        if let Some(since) = self.unreachable_since.take() {
-            if self.unreachable_delivered {
-                out.push(Notification::recovery(
-                    NotificationKind::Unreachable,
-                    "Starlink dish reachable again",
-                    format!(
-                        "The dish answers again after {}.",
-                        fmt_duration(now - since)
-                    ),
-                ));
-            }
-            self.unreachable_alerted = false;
-            self.unreachable_delivered = false;
-        }
+        // The dish answers again (possibly after a reboot, e.g. a nightly firmware update).
+        let back = self
+            .unreachable_since
+            .take()
+            .map(|since| (since, self.unreachable_delivered));
+        self.unreachable_alerted = false;
+        self.unreachable_delivered = false;
         // Reboot markers survive reconnects, so this also works on the first observation.
-        if let Some(n) = self.check_reboot(snap.uptime_s, obs.bootcount, now) {
-            out.push(n);
+        let reboot = self.check_reboot(snap.uptime_s, obs.bootcount, now);
+        match (reboot, back) {
+            // Offline because it restarted: one merged message instead of "reachable again"
+            // plus "restarted" (it pairs with a delivered "not reachable", if any).
+            (Some(mut n), Some((since, delivered))) => {
+                n.body = format!(
+                    "The dish restarted and was offline for {}.",
+                    fmt_duration(now - since)
+                );
+                n.bypass_cooldown = delivered;
+                out.push(n);
+            }
+            (Some(n), None) => out.push(n),
+            (None, Some((since, true))) => out.push(Notification::recovery(
+                NotificationKind::Unreachable,
+                "Starlink dish reachable again",
+                format!(
+                    "The dish answers again after {}.",
+                    fmt_duration(now - since)
+                ),
+            )),
+            (None, _) => {}
         }
         if !self.initialized {
             // Baseline only.
@@ -848,5 +871,62 @@ mod tests {
         assert_eq!(deliver_all(&mut e, vec![n.clone()], 0, 12).len(), 1);
         e.reset();
         assert!(deliver_all(&mut e, vec![n], 60_000, 12).is_empty());
+    }
+
+    #[test]
+    fn reboot_while_unreachable_is_one_message() {
+        // "Not reachable" delivered, then the dish comes back rebooted: one merged message.
+        let mut e = NotificationEngine::new();
+        observe(&mut e, &snap(), 0, None); // uptime 1000
+        e.observe_unreachable(10_000);
+        let c = e.observe_unreachable(10_000 + UNREACHABLE_MIN_MS);
+        assert_eq!(deliver_all(&mut e, c, 200_000, 12).len(), 1);
+        e.reset();
+        let mut rebooted = snap();
+        rebooted.uptime_s = Some(90);
+        let out = e.observe(&Observation {
+            now_ms: 10_000 + 10 * 60_000,
+            snapshot: Some(&rebooted),
+            outage_cause: None,
+            bootcount: None,
+        });
+        assert_eq!(out.len(), 1, "{out:?}");
+        assert_eq!(out[0].kind, NotificationKind::Reboot);
+        assert_eq!(
+            out[0].body,
+            "The dish restarted and was offline for 10 min 0 s."
+        );
+        assert!(out[0].bypass_cooldown);
+        // Short unreachable period (alert never sent) + reboot: still one restart message.
+        let mut e = NotificationEngine::new();
+        observe(&mut e, &snap(), 0, None);
+        e.observe_unreachable(5_000);
+        e.reset();
+        let out = e.observe(&Observation {
+            now_ms: 65_000,
+            snapshot: Some(&rebooted),
+            outage_cause: None,
+            bootcount: None,
+        });
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].kind, NotificationKind::Reboot);
+        assert!(!out[0].bypass_cooldown);
+    }
+
+    #[test]
+    fn new_dish_address_forgets_reboot_markers() {
+        let mut e = NotificationEngine::new();
+        observe(&mut e, &snap(), 0, None); // uptime 1000
+        e.reset();
+        e.forget_dish();
+        let mut other = snap();
+        other.uptime_s = Some(30); // a different dish, not a reboot
+        assert!(observe(&mut e, &other, 60_000, None).is_empty());
+        // And it no longer counts as "seen" for the unreachable alert until observed again.
+        let mut e = NotificationEngine::new();
+        observe(&mut e, &snap(), 0, None);
+        e.forget_dish();
+        assert!(e.observe_unreachable(0).is_empty());
+        assert!(e.observe_unreachable(10 * 60_000).is_empty());
     }
 }

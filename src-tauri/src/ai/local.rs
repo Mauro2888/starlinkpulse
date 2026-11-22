@@ -130,6 +130,9 @@ fn error_message(body: &str) -> Option<String> {
 #[derive(Debug, Clone)]
 pub struct LocalClient {
     http: reqwest::Client,
+    /// Join base (path ends with `/`); endpoints are built with `Url::join`.
+    base: reqwest::Url,
+    /// Display form for messages.
     base_url: String,
     kind: LocalAiKind,
 }
@@ -138,22 +141,45 @@ impl LocalClient {
     /// `base_url` like `http://localhost:11434`; a trailing `/v1` is tolerated for
     /// OpenAI-compatible servers.
     pub fn new(base_url: &str, kind: LocalAiKind) -> Result<Self, AppError> {
-        let mut base = base_url.trim().trim_end_matches('/').to_string();
+        let mut base = super::http::validate_base_url(base_url)
+            .map_err(|e| AppError::InvalidInput(format!("localAiUrl: {e}")))?;
         if kind == LocalAiKind::OpenaiCompatible
             && let Some(stripped) = base.strip_suffix("/v1")
         {
             base = stripped.to_string();
         }
-        let http = reqwest::Client::builder()
+        let join = super::http::join_base(&base)
+            .map_err(|e| AppError::InvalidInput(format!("localAiUrl: {e}")))?;
+        let http = super::http::client_builder()
             .timeout(TIMEOUT)
             .connect_timeout(Duration::from_secs(10))
             .build()
             .map_err(|e| AppError::Internal(format!("http client: {e}")))?;
         Ok(Self {
             http,
+            base: join,
             base_url: base,
             kind,
         })
+    }
+
+    fn endpoint(&self, path: &str) -> Result<reqwest::Url, AppError> {
+        self.base
+            .join(path)
+            .map_err(|_| AppError::InvalidInput("localAiUrl is not a valid base URL".into()))
+    }
+
+    async fn body(&self, resp: reqwest::Response) -> Result<String, AppError> {
+        use super::http::{BodyError, MAX_BODY_BYTES, read_capped};
+        read_capped(resp, MAX_BODY_BYTES)
+            .await
+            .map_err(|e| match e {
+                BodyError::TooLarge => {
+                    AppError::AiInvalidResponse("the local server answer is too large".into())
+                }
+                BodyError::Timeout => self.unreachable(true),
+                BodyError::Interrupted => self.unreachable(false),
+            })
     }
 
     fn unreachable(&self, timeout: bool) -> AppError {
@@ -202,27 +228,21 @@ impl LocalClient {
             ));
         }
         let (url, body) = match self.kind {
-            LocalAiKind::Ollama => (
-                format!("{}/api/chat", self.base_url),
-                ollama_body(model, user_text),
-            ),
+            LocalAiKind::Ollama => (self.endpoint("api/chat")?, ollama_body(model, user_text)),
             LocalAiKind::OpenaiCompatible => (
-                format!("{}/v1/chat/completions", self.base_url),
+                self.endpoint("v1/chat/completions")?,
                 openai_body(model, user_text),
             ),
         };
         let resp = self
             .http
-            .post(&url)
+            .post(url)
             .json(&body)
             .send()
             .await
             .map_err(|e| self.unreachable(e.is_timeout()))?;
         let status = resp.status().as_u16();
-        let text = resp
-            .text()
-            .await
-            .map_err(|e| self.unreachable(e.is_timeout()))?;
+        let text = self.body(resp).await?;
         tracing::debug!(status, "local AI response");
         if !(200..300).contains(&status) {
             return Err(self.map_status(status, &text, model));
@@ -236,21 +256,18 @@ impl LocalClient {
     /// Models available on the server.
     pub async fn list_models(&self) -> Result<Vec<String>, AppError> {
         let url = match self.kind {
-            LocalAiKind::Ollama => format!("{}/api/tags", self.base_url),
-            LocalAiKind::OpenaiCompatible => format!("{}/v1/models", self.base_url),
+            LocalAiKind::Ollama => self.endpoint("api/tags")?,
+            LocalAiKind::OpenaiCompatible => self.endpoint("v1/models")?,
         };
         let resp = self
             .http
-            .get(&url)
+            .get(url)
             .timeout(LIST_TIMEOUT)
             .send()
             .await
             .map_err(|e| self.unreachable(e.is_timeout()))?;
         let status = resp.status().as_u16();
-        let text = resp
-            .text()
-            .await
-            .map_err(|e| self.unreachable(e.is_timeout()))?;
+        let text = self.body(resp).await?;
         if !(200..300).contains(&status) {
             return Err(AppError::AiUnavailable(format!(
                 "The local AI server returned status {status} for the model list."
@@ -318,8 +335,15 @@ pub(crate) mod tests {
                     .lock()
                     .unwrap()
                     .push(String::from_utf8_lossy(&buf).to_string());
+                // 3xx answers point back to this server, so a followed redirect would show up
+                // as a second request.
+                let location = if (300..400).contains(&status) {
+                    "location: /api/chat\r\n"
+                } else {
+                    ""
+                };
                 let resp = format!(
-                    "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\n{location}content-length: {}\r\nconnection: close\r\n\r\n{body}",
                     body.len()
                 );
                 let _ = sock.write_all(resp.as_bytes()).await;
@@ -423,6 +447,30 @@ pub(crate) mod tests {
         assert!(reqs[0].starts_with("POST /v1/chat/completions "));
         assert!(reqs[0].contains("\"strict\":true"));
         assert!(reqs[1].starts_with("GET /v1/models "));
+    }
+
+    #[tokio::test]
+    async fn redirects_are_not_followed_and_bodies_are_capped() {
+        let ok = json!({"message": {"content": output_json()}}).to_string();
+        let (url, seen) = server(vec![(307, String::new()), (200, ok)]).await;
+        let c = LocalClient::new(&url, LocalAiKind::Ollama).unwrap();
+        let e = c.analyze("m", "p").await.unwrap_err();
+        assert_eq!(e.kind(), "ai_unavailable");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(seen.lock().unwrap().len(), 1, "redirect not followed");
+
+        let huge = format!(
+            "{{\"pad\":\"{}\"}}",
+            "x".repeat(super::super::http::MAX_BODY_BYTES)
+        );
+        let (url, _) = server(vec![(200, huge)]).await;
+        let c = LocalClient::new(&url, LocalAiKind::Ollama).unwrap();
+        let e = c.analyze("m", "p").await.unwrap_err();
+        assert_eq!(e.kind(), "ai_invalid_response");
+        assert!(e.to_string().contains("too large"));
+        // Invalid base URLs are refused before any request.
+        assert!(LocalClient::new("http://u:p@localhost:1", LocalAiKind::Ollama).is_err());
+        assert!(LocalClient::new("http://localhost:1/?q", LocalAiKind::Ollama).is_err());
     }
 
     #[tokio::test]

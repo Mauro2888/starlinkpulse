@@ -41,6 +41,10 @@ pub const LOW_COVERAGE_MINUTES: u32 = 12 * 60;
 /// Throttled for at least 90 % of the covered time: the limit is permanent.
 pub const THROTTLE_PERMANENT_SHARE: f64 = 0.9;
 
+/// Congestion is claimed only when the worst hour's p95 exceeds this multiple of the 24 h
+/// average latency.
+pub const CONGESTION_FACTOR: f64 = 1.5;
+
 /// Network-side outage causes (not obstruction, not reboot).
 pub const NETWORK_CAUSES: &[&str] = &[
     "NO_SCHEDULE",
@@ -58,6 +62,8 @@ pub struct RuleContext {
     pub alerts: Vec<String>,
     /// BOOTING outages in the window (= reboots).
     pub boot_count: u32,
+    /// Latency p95 during the worst local hour (`worstHours[0]`), for the congestion claim.
+    pub worst_hour_p95_ms: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -191,8 +197,27 @@ pub fn evaluate(s: &DiagnosticSummary, ctx: &RuleContext) -> RulesOutcome {
         ));
     }
 
-    // Alignment (manual dishes only).
-    if ctx.actuators != ActuatorSupport::Yes {
+    // Alignment: concrete rotate/tilt actions only for dishes known to have no motors.
+    let off_az = s
+        .azimuth_correction_deg
+        .is_some_and(|d| d.abs() > ALIGN_AZ_TOL_DEG);
+    let off_el = s
+        .elevation_correction_deg
+        .is_some_and(|d| d.abs() > ALIGN_EL_TOL_DEG);
+    if ctx.actuators == ActuatorSupport::Unknown && (off_az || off_el) {
+        f.push(finding(
+            Cat::Configuration,
+            Sev::Info,
+            "Dish orientation differs from the recommendation",
+            format!(
+                "The dish reports a correction of {} in direction and {} in tilt. It is not known whether this dish has motors.",
+                deg(s.azimuth_correction_deg.unwrap_or(0.0)),
+                deg(s.elevation_correction_deg.unwrap_or(0.0))
+            ),
+            &["If your dish has no motors, open the alignment helper in the app and follow its guidance."],
+        ));
+    }
+    if ctx.actuators == ActuatorSupport::No {
         let actions = alignment_actions(s.azimuth_correction_deg, s.elevation_correction_deg);
         if !actions.is_empty() {
             let az = s.azimuth_correction_deg.unwrap_or(0.0);
@@ -230,9 +255,6 @@ pub fn evaluate(s: &DiagnosticSummary, ctx: &RuleContext) -> RulesOutcome {
         if share >= THROTTLE_PERMANENT_SHARE {
             detail.push_str(" The limit is active almost all the time, which is typical of deprioritized or limited plans.");
         }
-        if !s.worst_hours.is_empty() {
-            detail.push_str(&format!(" Slowest hours: {}.", hours_list(&s.worst_hours)));
-        }
         f.push(finding(
             Cat::StarlinkNetwork,
             Sev::Info,
@@ -254,15 +276,31 @@ pub fn evaluate(s: &DiagnosticSummary, ctx: &RuleContext) -> RulesOutcome {
             .filter(|(c, v)| NETWORK_CAUSES.contains(&c.as_str()) && *v > 0.0)
             .map(|(c, v)| format!("{c} {}", duration(*v)))
             .collect();
+        // "Clear view" only when obstruction was actually measured and is low.
+        let view = if s.fraction_obstructed.is_some_and(|f| f <= OBSTRUCTION_WARN) {
+            "The dish had a clear view of the sky, so these most likely come from the satellite network or coverage."
+        } else {
+            "No significant obstruction was measured, so these most likely come from the satellite network or coverage."
+        };
+        let mut detail = format!(
+            "{} of outages without obstruction in the last 24 h ({}). {view}",
+            duration(network_s),
+            causes.join(", ")
+        );
+        if cause_seconds(s, "SKY_SEARCH") > 0.0 {
+            detail.push_str(
+                " SKY_SEARCH can also follow a restart, while the dish looks for satellites.",
+            );
+        }
         f.push(finding(
             Cat::StarlinkNetwork,
-            if network_s >= NETWORK_OUTAGE_CRIT_S { Sev::Critical } else { Sev::Warning },
+            if network_s >= NETWORK_OUTAGE_CRIT_S {
+                Sev::Critical
+            } else {
+                Sev::Warning
+            },
             "Outages on the Starlink side",
-            format!(
-                "{} of outages without obstruction in the last 24 h ({}). The dish had a clear view, so these come from the satellite network or coverage.",
-                duration(network_s),
-                causes.join(", ")
-            ),
+            detail,
             &[
                 "Check status.starlink.com or the Starlink app for known outages in your area.",
                 "If it keeps happening, report it to Starlink support with the outage times.",
@@ -306,10 +344,17 @@ pub fn evaluate(s: &DiagnosticSummary, ctx: &RuleContext) -> RulesOutcome {
                 p95.round(),
                 pct(drop)
             );
-            if !s.worst_hours.is_empty() {
+            // Claim congestion only when the worst hour clearly stands out from the day.
+            let avg = s.latency_avg_ms.unwrap_or(0.0);
+            if let (Some(&hour), Some(worst)) = (s.worst_hours.first(), ctx.worst_hour_p95_ms)
+                && avg > 0.0
+                && worst > CONGESTION_FACTOR * avg
+            {
                 detail.push_str(&format!(
-                    " Worst hours: {}, which points to network congestion.",
-                    hours_list(&s.worst_hours)
+                    " The worst hour ({}) reaches {} ms, well above the daily average of {} ms, which points to network congestion.",
+                    hours_list(&[hour]),
+                    worst.round(),
+                    avg.round()
                 ));
             }
             f.push(finding(
@@ -318,7 +363,7 @@ pub fn evaluate(s: &DiagnosticSummary, ctx: &RuleContext) -> RulesOutcome {
                 "Slow or unstable Starlink connection",
                 detail,
                 &[
-                    "Compare with the worst hours: if problems cluster in the evening, it is congestion in your area.",
+                    "If problems cluster at the same hours every day, it is likely congestion in your area.",
                     "If devices feel slower than these numbers suggest, check your Wi-Fi as well.",
                 ],
             ));
@@ -541,10 +586,30 @@ mod tests {
             actuators: ActuatorSupport::Yes,
             ..Default::default()
         };
+        let o = evaluate(&s, &motor);
+        assert!(find(&o, "Dish not aimed where Starlink recommends").is_none());
+        assert!(find(&o, "Dish orientation differs from the recommendation").is_none());
+        // Unknown motors: info with the numbers, no rotate/tilt instructions.
+        let unknown = RuleContext::default();
+        assert_eq!(unknown.actuators, ActuatorSupport::Unknown);
+        let o = evaluate(&s, &unknown);
+        assert!(find(&o, "Dish not aimed where Starlink recommends").is_none());
+        let i = find(&o, "Dish orientation differs from the recommendation").unwrap();
+        assert_eq!(i.severity, Sev::Info);
+        assert!(i.detail.contains("2.5°") && i.detail.contains("1.5°"));
+        assert!(
+            i.actions
+                .iter()
+                .all(|a| !a.contains("Rotate") && !a.contains("Tilt"))
+        );
+        assert!(i.actions[0].starts_with("If your dish has no motors"));
+        // Within tolerance: nothing at all.
+        s.azimuth_correction_deg = Some(1.0);
+        s.elevation_correction_deg = Some(0.5);
         assert!(
             find(
-                &evaluate(&s, &motor),
-                "Dish not aimed where Starlink recommends"
+                &evaluate(&s, &unknown),
+                "Dish orientation differs from the recommendation"
             )
             .is_none()
         );
@@ -560,7 +625,10 @@ mod tests {
         assert_eq!(t.severity, Sev::Info);
         assert!(t.detail.contains("1400 min"));
         assert!(t.detail.contains("almost all the time"));
-        assert!(t.detail.contains("20:00-21:00, 21:00-22:00, 23:00-00:00"));
+        assert!(
+            !t.detail.contains("20:00"),
+            "no hours in the POLICY_LIMIT finding"
+        );
         assert_eq!(o.overall_health, AiOverallHealth::Good, "info only");
     }
 
@@ -578,6 +646,19 @@ mod tests {
         assert_eq!(n.severity, Sev::Warning);
         assert_eq!(n.category, Cat::StarlinkNetwork);
         assert!(n.detail.contains("NO_DOWNLINK 40 s"));
+        assert!(n.detail.contains("clear view"), "fraction measured at 0 %");
+        assert!(n.detail.contains("SKY_SEARCH can also follow a restart"));
+        // Obstruction not measured: no "clear view" claim.
+        let mut unmeasured = s.clone();
+        unmeasured.fraction_obstructed = None;
+        let d = find(
+            &evaluate(&unmeasured, &manual()),
+            "Outages on the Starlink side",
+        )
+        .unwrap()
+        .detail
+        .clone();
+        assert!(!d.contains("clear view") && d.contains("No significant obstruction was measured"));
         s.outages_by_cause = vec![("NO_SCHEDULE".into(), 600.0)];
         assert_eq!(
             find(&evaluate(&s, &manual()), "Outages on the Starlink side")
@@ -648,10 +729,33 @@ mod tests {
         s.latency_p95_ms = Some(201.0);
         s.drop_rate_avg = Some(0.0);
         s.worst_hours = vec![21];
-        let o = evaluate(&s, &manual());
-        let f = find(&o, "Slow or unstable Starlink connection").unwrap();
+        // Worst hour not clearly above the day (avg 30 ms, factor 1.5 -> 45 ms): no claim.
+        let flat = RuleContext {
+            worst_hour_p95_ms: Some(45.0),
+            ..manual()
+        };
+        let f = find(&evaluate(&s, &flat), "Slow or unstable Starlink connection")
+            .unwrap()
+            .clone();
         assert_eq!(f.severity, Sev::Critical);
-        assert!(f.detail.contains("201 ms") && f.detail.contains("congestion"));
+        assert!(f.detail.contains("201 ms") && !f.detail.contains("congestion"));
+        let peaky = RuleContext {
+            worst_hour_p95_ms: Some(46.0),
+            ..manual()
+        };
+        let o = evaluate(&s, &peaky);
+        let f = find(&o, "Slow or unstable Starlink connection").unwrap();
+        assert!(f.detail.contains("21:00-22:00") && f.detail.contains("congestion"));
+        // Without the per-hour value no congestion claim either.
+        assert!(
+            !find(
+                &evaluate(&s, &manual()),
+                "Slow or unstable Starlink connection"
+            )
+            .unwrap()
+            .detail
+            .contains("congestion")
+        );
         // Obstruction explains it.
         s.fraction_obstructed = Some(0.02);
         assert!(
