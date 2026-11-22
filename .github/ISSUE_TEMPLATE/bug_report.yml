@@ -1,0 +1,78 @@
+name: Bug report
+description: Something in StarlinkPulse doesn't work as expected.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please don't paste device IDs, serial numbers, MAC addresses, IP addresses, GPS coordinates or API keys anywhere in this form.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you see, and what did you expect instead?
+      placeholder: The History tab stays empty after 2 hours of running…
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the tray popup
+        2. Go to History
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: StarlinkPulse version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS (Apple silicon)
+        - macOS (Intel)
+        - Windows 11
+        - Windows 10
+        - Linux (please name the distro and desktop below)
+    validations:
+      required: true
+  - type: input
+    id: os-details
+    attributes:
+      label: OS version / Linux distro and desktop
+      placeholder: "macOS 26.1 / Ubuntu 24.04 GNOME"
+  - type: input
+    id: dish
+    attributes:
+      label: Dish model and firmware
+      description: Shown in the app header (for example "Starlink Mini · fw 2026.11.04…"). Write "demo mode" if it happens with simulated data.
+  - type: dropdown
+    id: network
+    attributes:
+      label: Network setup
+      options:
+        - Starlink router
+        - Third-party router
+        - Starlink bypass mode
+        - Not sure
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error messages or logs
+      description: Copy any error text shown in the app. Remove IDs, addresses and keys first.
+      render: text
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed device IDs, serial numbers, MAC/IP addresses, location and API keys from everything above.
+          required: true

@@ -62,7 +62,7 @@ function noise(seed: number): number {
 function loadSettings(): Settings {
   // Dev aid: `?mockProfile=obstructed` forces a profile for UI work.
   const forced = typeof location !== "undefined" ? new URLSearchParams(location.search).get("mockProfile") : null;
-  if (forced && forced in PROFILES) return { ...DEFAULT_SETTINGS, mockProfile: forced as Settings["mockProfile"] };
+  if (forced && forced in PROFILES) return { ...DEFAULT_SETTINGS, mockMode: "on", mockProfile: forced as Settings["mockProfile"] };
   try {
     const raw = globalThis.localStorage?.getItem(SETTINGS_KEY);
     if (raw) return { ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Partial<Settings>) };

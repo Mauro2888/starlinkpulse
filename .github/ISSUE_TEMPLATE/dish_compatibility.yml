@@ -1,0 +1,95 @@
+name: Dish compatibility report
+description: A dish model or firmware shows missing data, wrong values or unsupported features.
+title: "[Dish]: <model> on firmware <version>"
+labels: ["compatibility"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        StarlinkPulse reads the dish schema at runtime, but firmware differs a lot between models. Your report helps support it.
+
+        > **Warning: anonymize before you paste.** Remove `id`, `deviceId`, serial numbers, MAC addresses, IP addresses, any `uuid`, and any location or GPS fields. **Only run read-only requests.** Never run reboot, stow or `*_set_*` commands to collect data.
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware version
+      description: From the app header tooltip or the Starlink app (Advanced → Debug data), e.g. `mini1_prod2`, `rev3_proto2`.
+      placeholder: rev3_proto2
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: Firmware (software) version
+      placeholder: 2026.11.04.mr51230
+    validations:
+      required: true
+  - type: dropdown
+    id: model
+    attributes:
+      label: Dish model
+      options:
+        - Standard Actuated / Gen 1 (round)
+        - Standard (rectangular)
+        - Mini
+        - High Performance
+        - Flat High Performance
+        - Other / not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: router
+    attributes:
+      label: Router
+      options:
+        - Starlink router (built-in or separate)
+        - Third-party router
+        - Bypass mode
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: macOS 26.1 / Windows 11 / Ubuntu 24.04
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: StarlinkPulse version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is missing or wrong?
+      description: For example "signal shows —", "stow button missing", "obstruction map mirrored".
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: Anonymized get_status output (optional)
+      description: |
+        Read-only request:
+        `grpcurl -plaintext -d '{"get_status":{}}' 192.168.100.1:9200 SpaceX.API.Device.Device/Handle`
+        Remove IDs, serials, MAC/IP addresses and location fields before pasting.
+      render: json
+  - type: textarea
+    id: reflection
+    attributes:
+      label: Reflection output (optional)
+      description: |
+        For schema differences, e.g. `grpcurl -plaintext 192.168.100.1:9200 describe SpaceX.API.Device.DishGetStatusResponse`.
+      render: text
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy and safety check
+      options:
+        - label: I removed device IDs, serial numbers, MAC/IP addresses and location data.
+          required: true
+        - label: I only ran read-only requests against my dish.
+          required: true

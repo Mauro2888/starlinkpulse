@@ -44,6 +44,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
+            keyring_store::init_file_fallback(&data_dir);
             let state = Arc::new(AppState::new(&data_dir)?);
             app.manage(state.clone());
             let sink: Arc<dyn EventSink> = Arc::new(tray::setup(app.handle())?);

@@ -1,0 +1,113 @@
+name: Release
+
+# Builds installers for macOS (universal .dmg/.app), Windows (.msi + NSIS .exe) and
+# Linux (.AppImage + .deb) and attaches them to a DRAFT GitHub Release.
+#
+# Secrets (Settings > Secrets and variables > Actions):
+#   TAURI_SIGNING_PRIVATE_KEY           optional. Updater signing key (`npm run tauri signer generate`).
+#                                       When set, updater artifacts (.sig) and `latest.json` are
+#                                       produced; when absent they are skipped.
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  optional. Password of the key above.
+#   macOS signing / notarization (optional, see the commented env block below):
+#   APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY,
+#   APPLE_ID, APPLE_PASSWORD (app-specific password), APPLE_TEAM_ID.
+# Without Apple signing the macOS build is unsigned (users run `xattr -cr` or allow it in
+# System Settings > Privacy & Security); see README.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS universal
+            platform: macos-latest
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            args: --target universal-apple-darwin
+          - name: Windows
+            platform: windows-latest
+            rust_targets: ''
+            args: --bundles msi,nsis
+          - name: Linux
+            # Oldest supported Ubuntu runner: AppImage built here runs on more distros.
+            platform: ubuntu-22.04
+            rust_targets: ''
+            args: --bundles appimage,deb
+    runs-on: ${{ matrix.platform }}
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libssl-dev libdbus-1-dev patchelf
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      # Updater artifacts need the signing key; enable them only when the secret exists.
+      - name: Detect updater signing key
+        id: updater
+        shell: bash
+        run: |
+          if [ -n "${TAURI_SIGNING_PRIVATE_KEY}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "args=--config src-tauri/tauri.updater.conf.json" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "args=" >> "$GITHUB_OUTPUT"
+            echo "::notice::TAURI_SIGNING_PRIVATE_KEY not set: building without updater artifacts"
+          fi
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS code signing and notarization (optional):
+          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: v__VERSION__
+          releaseName: StarlinkPulse v__VERSION__
+          releaseBody: |
+            See the assets below for macOS (universal), Windows and Linux.
+            Unsigned builds: see the README for Gatekeeper / SmartScreen instructions.
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: ${{ steps.updater.outputs.enabled == 'true' }}
+          args: ${{ matrix.args }} ${{ steps.updater.outputs.args }}
