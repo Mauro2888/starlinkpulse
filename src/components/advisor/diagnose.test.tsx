@@ -56,11 +56,15 @@ const report = (source: AiReport["source"], headline: string): AiReport => ({
   payload: summary,
 });
 
+const sentArgs: Record<string, unknown>[] = [];
+
 function fake(overrides: Record<string, () => Promise<unknown>> = {}) {
   const calls: string[] = [];
+  sentArgs.length = 0;
   const backend: Backend = {
-    invoke: vi.fn(async (cmd: string) => {
+    invoke: vi.fn(async (cmd: string, args?: Record<string, unknown>) => {
       calls.push(cmd);
+      if (cmd === "analyze_network_with_ai") sentArgs.push(args ?? {});
       if (overrides[cmd]) return overrides[cmd]();
       if (cmd === "get_last_ai_report") return null;
       if (cmd === "run_diagnostics") return report("rules", "Rules headline");
@@ -135,6 +139,19 @@ describe("Diagnose tab", () => {
     expect(await screen.findByText("AI headline")).toBeInTheDocument();
     expect(screen.getByText("Claude")).toBeInTheDocument();
     expect(calls.filter((c) => c === "analyze_network_with_ai")).toHaveLength(1);
+    // The exact previewed payload is what gets sent.
+    expect(sentArgs[0]).toEqual({ payload: summary });
+  });
+
+  it("warns prominently about simulated data, mentioning cost for Claude", async () => {
+    fake({ preview_ai_payload: async () => ({ ...summary, isSimulated: true }) });
+    const { user } = renderTab("claude");
+    await screen.findByText("Rules headline");
+    await user.click(screen.getByRole("button", { name: /explain with ai/i }));
+    const dialog = await screen.findByRole("alertdialog");
+    const warning = within(dialog).getByRole("alert");
+    expect(warning).toHaveTextContent("Simulated data.");
+    expect(warning).toHaveTextContent(/costs money/);
   });
 
   it("never sends when the user declines", async () => {

@@ -87,7 +87,7 @@ function canned(profile: MockProfile, p: ProfileSpec): { overallHealth: AiOveral
       detail:
         "Most of the 30 outages in the last 24 hours were caused by obstructions, each lasting a few seconds. Video calls and games will freeze when this happens. Starlink recommends less than 1% obstruction.",
       actions: [
-        "Open the obstruction map in the Starlink app to see which direction is blocked",
+        "Open the Sky view on the Live tab to see which direction is blocked",
         "Move the dish higher or further from trees and roof edges",
         "Re-check obstruction % here after 12 hours",
       ],

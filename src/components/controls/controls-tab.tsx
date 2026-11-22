@@ -5,11 +5,20 @@ import { api, isTauri } from "@/lib/api";
 import { historyToCsv } from "@/lib/history";
 import { isLinkUp } from "@/lib/dish";
 import { toastError, toastSuccess } from "@/lib/notify";
-import { useApiKey, useCapabilities, useConnection, useSettings } from "@/hooks/use-pulse";
+import {
+  useApiKey,
+  useCapabilities,
+  useConnection,
+  useSettings,
+} from "@/hooks/use-pulse";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Section, StatePanel } from "@/components/state-panels";
-import { DishActions, SNOW_MELT_LABELS, type DishAction } from "@/components/controls/dish-actions";
+import {
+  DishActions,
+  SNOW_MELT_LABELS,
+  type DishAction,
+} from "@/components/controls/dish-actions";
 import { SettingsForm } from "@/components/controls/settings-form";
 import { ApiKeyCard } from "@/components/controls/api-key-card";
 import { AlertCircle } from "lucide-react";
@@ -21,7 +30,10 @@ async function runAction(a: DishAction): Promise<void> {
     switch (a.type) {
       case "reboot":
         await api.rebootDish();
-        toastSuccess("Reboot sent", "The dish will be offline for 1–2 minutes.");
+        toastSuccess(
+          "Reboot sent",
+          "The dish will be offline for 1–2 minutes.",
+        );
         break;
       case "stow":
         await api.stowDish();
@@ -64,27 +76,27 @@ export function ControlsTab() {
           onOpenSettings={focusReadOnly}
         />
         {settings?.aiProvider === "claude" && (
-        <ApiKeyCard
-          hasKey={key.hasKey}
-          error={key.error?.message ?? null}
-          onSave={async (k) => {
-            try {
-              await key.save(k);
-              toastSuccess("API key saved");
-            } catch (e) {
-              toastError(e, "Could not save key");
-              throw e;
-            }
-          }}
-          onDelete={async () => {
-            try {
-              await key.remove();
-              toastSuccess("API key deleted");
-            } catch (e) {
-              toastError(e, "Could not delete key");
-            }
-          }}
-        />
+          <ApiKeyCard
+            hasKey={key.hasKey}
+            error={key.error?.message ?? null}
+            onSave={async (k) => {
+              try {
+                await key.save(k);
+                toastSuccess("API key saved");
+              } catch (e) {
+                toastError(e, "Could not save key");
+                throw e;
+              }
+            }}
+            onDelete={async () => {
+              try {
+                await key.remove();
+                toastSuccess("API key deleted");
+              } catch (e) {
+                toastError(e, "Could not delete key");
+              }
+            }}
+          />
         )}
         <ExportCard />
       </div>
@@ -103,7 +115,11 @@ export function ControlsTab() {
             }}
           />
         ) : error ? (
-          <StatePanel tone="critical" icon={<AlertCircle />} title="Settings unavailable">
+          <StatePanel
+            tone="critical"
+            icon={<AlertCircle />}
+            title="Settings unavailable"
+          >
             {error.message}
           </StatePanel>
         ) : (
@@ -114,8 +130,12 @@ export function ControlsTab() {
   );
 }
 
-function downloadInBrowser(points: Awaited<ReturnType<typeof api.getHistory>>): void {
-  const blob = new Blob([historyToCsv(points)], { type: "text/csv;charset=utf-8" });
+function downloadInBrowser(
+  points: Awaited<ReturnType<typeof api.getHistory>>,
+): void {
+  const blob = new Blob([historyToCsv(points)], {
+    type: "text/csv;charset=utf-8",
+  });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
@@ -141,7 +161,9 @@ function ExportCard() {
       // Browser dev mode only: build the file client-side.
       const points = await api.getHistory(2880);
       if (points.length === 0) {
-        toast.info("No history to export yet", { description: "History builds up while the app runs." });
+        toast.info("No history to export yet", {
+          description: "History builds up while the app runs.",
+        });
         return;
       }
       downloadInBrowser(points);
@@ -155,9 +177,15 @@ function ExportCard() {
   return (
     <Section title="Data">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground">Per-minute history of the last 48 hours as CSV.</p>
+        <p className="text-xs text-muted-foreground">
+          Per-minute history of the last 48 hours as CSV.
+        </p>
         <Button size="sm" variant="outline" onClick={exportCsv} disabled={busy}>
-          {busy ? <Loader2 className="animate-spin" aria-hidden /> : <Download aria-hidden />}
+          {busy ? (
+            <Loader2 className="animate-spin" aria-hidden />
+          ) : (
+            <Download aria-hidden />
+          )}
           Export CSV
         </Button>
       </div>

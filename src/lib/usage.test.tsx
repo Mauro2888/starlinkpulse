@@ -102,6 +102,9 @@ describe("History cards", () => {
     expect(screen.getByRole("progressbar", { name: "Data cap used" })).toHaveAttribute("aria-valuenow", "85");
     expect(screen.getByText(/You're getting close/)).toBeInTheDocument();
     expect(screen.getByText(/not your Starlink bill/)).toBeInTheDocument();
+    // Screen-reader table with per-day values (cycle days only).
+    const table = screen.getByRole("table", { name: /per day/ });
+    expect(table.querySelectorAll("tbody tr")).toHaveLength(2);
   });
 
   it("explains how to add a cap when none is set", () => {

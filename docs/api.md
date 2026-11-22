@@ -27,6 +27,7 @@ All commands are async and return `Result<T, CommandError>`; arguments are camel
 | `has_api_key` | – | `boolean` | 2 |
 | `delete_api_key` | – | `()` | 2 |
 | `run_diagnostics` | – | `AiReport` with `source: "rules"` (built-in rule engine, offline, no key; `insufficient_data` if < 60 min) | 4.6 |
+| `get_last_rules_report` | – | `AiReport \| null` (last `run_diagnostics` result) | 4.6 |
 | `list_local_models` | – | `string[]` (models on the configured local server; `ai_unavailable` if unreachable) | 4.6 |
 | `preview_ai_payload` | – | `DiagnosticSummary` (exactly what would be sent; no network call) | 4 |
 | `analyze_network_with_ai` | `payload: DiagnosticSummary` (exactly the previewed payload; backend re-validates shape/limits and rejects `isSimulated` mismatch with the current source) | `AiReport` (errors: `no_api_key`, `ai_auth`, `ai_rate_limit`, `ai_unavailable`, `ai_refused`, `ai_invalid_response`, `offline`) | 4 |

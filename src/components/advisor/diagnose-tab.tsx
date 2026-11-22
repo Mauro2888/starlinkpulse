@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { History, KeyRound, ListChecks, Loader2, RefreshCw, Settings2, ShieldCheck, Sparkles, TriangleAlert } from "lucide-react";
+import { FlaskConical, History, KeyRound, ListChecks, Loader2, RefreshCw, Settings2, ShieldCheck, Sparkles, TriangleAlert } from "lucide-react";
 import type { AiProvider, AiReport, DiagnosticSummary, Settings } from "@/types/models";
 import { api } from "@/lib/api";
 import { normalizeError, type ApiError } from "@/lib/errors";
@@ -29,6 +29,7 @@ interface Props {
   hasKey: boolean | null;
   onOpenApiKey: () => void;
   onOpenAiSettings: () => void;
+  onOpenSkyView?: () => void;
 }
 
 type Phase = "idle" | "diagnosing" | "preparing" | "confirm" | "explaining";
@@ -40,7 +41,7 @@ function formatElapsed(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings }: Props) {
+export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings, onOpenSkyView }: Props) {
   const provider: AiProvider = ai?.aiProvider ?? "off";
   const destination = ai ? aiDestination(ai) : null;
 
@@ -123,12 +124,15 @@ export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings }: Prop
   }, [provider, hasKey, fail]);
 
   const confirm = useCallback(async () => {
+    const payload = preview;
+    if (!payload) return;
     const id = ++runId.current;
     setPreview(null);
     setStartedAt(Date.now());
     setPhase("explaining");
     try {
-      const r = await api.analyzeNetworkWithAi();
+      // Send exactly what the user saw in the preview.
+      const r = await api.analyzeNetworkWithAi(payload);
       if (id !== runId.current) return;
       setReport(r);
       setPhase("idle");
@@ -137,7 +141,7 @@ export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings }: Prop
       if (id !== runId.current) return;
       fail(normalizeError(e), "ai");
     }
-  }, [fail]);
+  }, [fail, preview]);
 
   const stopWaiting = () => {
     runId.current++;
@@ -192,6 +196,7 @@ export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings }: Prop
         report={report}
         onRerun={report.source === "rules" ? diagnose : explain}
         rerunDisabled={busy}
+        onOpenSkyView={onOpenSkyView}
       />
     );
   } else {
@@ -366,6 +371,16 @@ export function PreviewDialog({
               <AlertDialogTitle>Send this summary to {d.name}?</AlertDialogTitle>
               <AlertDialogDescription>{privacyNote(d)}</AlertDialogDescription>
             </AlertDialogHeader>
+            {payload.isSimulated && (
+              <p role="alert" className="flex items-start gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs ring-1 ring-warning/40">
+                <FlaskConical className="mt-px size-3.5 shrink-0 text-warning" aria-hidden />
+                <span>
+                  <span className="font-medium">Simulated data.</span> These numbers come from demo mode, not your dish, so
+                  the explanation won't tell you anything about your connection.
+                  {d.name === "Claude" && " Analyzing it with Claude still costs money on your Anthropic account."}
+                </span>
+              </p>
+            )}
             {d.remoteLocal && (
               <p role="alert" className="flex items-start gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs ring-1 ring-warning/40">
                 <TriangleAlert className="mt-px size-3.5 shrink-0 text-warning" aria-hidden />

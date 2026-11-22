@@ -10,6 +10,7 @@ import {
   summarizeObstructionMap,
 } from "@/lib/sky";
 import { mockObstructionMap } from "@/lib/mock/obstruction";
+import { describeMap, isEarthFrame, snrColor } from "@/components/sky/obstruction-map";
 
 const geo = { rows: 123, cols: 123, maxThetaDeg: 80 };
 
@@ -100,5 +101,31 @@ describe("alignment guidance", () => {
   it("returns null without azimuth data and skips elevation when missing", () => {
     expect(alignmentGuidance({ ...base, azimuthDeg: null, desiredAzimuthDeg: 178, elevationDeg: 1, desiredElevationDeg: 2 })).toBeNull();
     expect(alignmentGuidance({ ...base, azimuthDeg: 1, desiredAzimuthDeg: 2, elevationDeg: null, desiredElevationDeg: 2 })!.elevation).toBeNull();
+  });
+});
+
+describe("map reference frame and colours", () => {
+  it("only uses compass directions in the earth frame", () => {
+    expect(isEarthFrame("FRAME_EARTH")).toBe(true);
+    expect(isEarthFrame(null)).toBe(true);
+    expect(isEarthFrame("FRAME_UT")).toBe(false);
+    const s = summarizeObstructionMap(mockObstructionMap("obstructed"));
+    expect(describeMap(s, true)).toMatch(/towards the south-west/);
+    expect(describeMap(s, false)).not.toMatch(/towards/);
+  });
+
+  it("keeps clear sky cool and translucent and obstruction warm and opaque", () => {
+    const [r, , b, a] = snrColor(1);
+    expect(b).toBeGreaterThan(r); // cool
+    expect(a).toBeLessThan(255);
+    const [r2, , b2, a2] = snrColor(0);
+    expect(r2).toBeGreaterThan(b2); // warm
+    expect(a2).toBe(255);
+  });
+
+  it("draws the mock as thin tracks with gaps, not full coverage", () => {
+    const s = summarizeObstructionMap(mockObstructionMap("standard"));
+    expect(s.coverage).toBeGreaterThan(0.2);
+    expect(s.coverage).toBeLessThan(0.85);
   });
 });

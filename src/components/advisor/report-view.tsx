@@ -75,12 +75,14 @@ export function SourceBadge({ source }: { source: ReportSource }) {
 }
 
 interface Props {
+  /** Shows an "Open Sky view" link on obstruction findings. */
+  onOpenSkyView?: () => void;
   report: AiReport;
   onRerun?: () => void;
   rerunDisabled?: boolean;
 }
 
-export function ReportView({ report, onRerun, rerunDisabled }: Props) {
+export function ReportView({ report, onRerun, rerunDisabled, onOpenSkyView }: Props) {
   const groups = groupFindings(report.findings);
   const generated = new Date(report.generatedAtMs).toLocaleString(undefined, {
     dateStyle: "medium",
@@ -116,7 +118,7 @@ export function ReportView({ report, onRerun, rerunDisabled }: Props) {
           <ul className="flex flex-col gap-2">
             {g.findings.map((f, i) => (
               <li key={`${f.title}-${i}`}>
-                <FindingCard finding={f} />
+                <FindingCard finding={f} onOpenSkyView={onOpenSkyView} />
               </li>
             ))}
           </ul>
@@ -144,7 +146,7 @@ export function ReportView({ report, onRerun, rerunDisabled }: Props) {
   );
 }
 
-function FindingCard({ finding }: { finding: AiFinding }) {
+function FindingCard({ finding, onOpenSkyView }: { finding: AiFinding; onOpenSkyView?: () => void }) {
   const cat = CATEGORY[finding.category] ?? { label: finding.category, icon: <CircleAlert /> };
   const sev = SEVERITY_ICON[finding.severity] ?? SEVERITY_ICON.info;
   const [done, setDone] = useState<boolean[]>(() => finding.actions.map(() => false));
@@ -189,6 +191,11 @@ function FindingCard({ finding }: { finding: AiFinding }) {
             })}
           </ul>
         </fieldset>
+      )}
+      {finding.category === "obstruction" && onOpenSkyView && (
+        <Button size="xs" variant="ghost" className="mt-2 -ml-1.5 text-primary" onClick={onOpenSkyView}>
+          <TreePine aria-hidden /> Open Sky view
+        </Button>
       )}
     </div>
   );

@@ -190,6 +190,7 @@ export class MockBackend implements Backend {
       }
       case "analyze_network_with_ai": {
         const provider = this.settings.aiProvider;
+        if (!args.payload || typeof args.payload !== "object") fail("invalid_input", "Missing payload.");
         if (provider === "off") fail("invalid_input", "AI explanations are turned off.");
         if (provider === "claude" && !this.hasKey) fail("no_api_key", "No Anthropic API key saved.");
         if (provider === "local") {

@@ -44,7 +44,7 @@ export interface CommandMap {
   run_diagnostics: { args: void; result: AiReport };
   list_local_models: { args: void; result: string[] };
   preview_ai_payload: { args: void; result: DiagnosticSummary };
-  analyze_network_with_ai: { args: void; result: AiReport };
+  analyze_network_with_ai: { args: { payload: DiagnosticSummary }; result: AiReport };
   get_last_ai_report: { args: void; result: AiReport | null };
 }
 
@@ -145,7 +145,8 @@ export const api = {
   /** Models on the configured local server (Ollama / OpenAI-compatible). */
   listLocalModels: () => call("list_local_models"),
   previewAiPayload: () => call("preview_ai_payload"),
-  analyzeNetworkWithAi: () => call("analyze_network_with_ai"),
+  /** Sends exactly the previewed payload to the configured AI provider. */
+  analyzeNetworkWithAi: (payload: DiagnosticSummary) => call("analyze_network_with_ai", { payload }),
   getLastAiReport: () => call("get_last_ai_report"),
 } as const;
 

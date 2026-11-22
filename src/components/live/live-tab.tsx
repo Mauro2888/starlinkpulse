@@ -1,7 +1,19 @@
-import { useCapabilities, useConnection, useSettings, useTelemetry } from "@/hooks/use-pulse";
+import {
+  useCapabilities,
+  useConnection,
+  useSettings,
+  useTelemetry,
+} from "@/hooks/use-pulse";
 import { useNow } from "@/hooks/use-now";
 import { LiveView } from "@/components/live/live-view";
-import { SkySection } from "@/components/sky/sky-section";
+import { lazy, Suspense } from "react";
+
+// The obstruction map (canvas + geometry) loads on demand.
+const SkySection = lazy(() =>
+  import("@/components/sky/sky-section").then((m) => ({
+    default: m.SkySection,
+  })),
+);
 
 export function LiveTab() {
   const { snapshot, buffer, error } = useTelemetry();
@@ -20,7 +32,13 @@ export function LiveTab() {
       now={now}
       pollIntervalS={settings?.livePollIntervalS ?? 3}
       mockMode={settings?.mockMode ?? null}
-      skySlot={<SkySection supported={Boolean(capabilities?.hasObstructionMap)} />}
+      skySlot={
+        capabilities?.hasObstructionMap ? (
+          <Suspense fallback={null}>
+            <SkySection supported />
+          </Suspense>
+        ) : null
+      }
     />
   );
 }

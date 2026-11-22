@@ -86,7 +86,7 @@ function UsageBody({ data }: { data: DataUsage }) {
       )}
 
       {bars.length > 0 ? (
-        <figure aria-label={`Daily usage this cycle, ${bars.length} days.`} className="flex flex-col gap-1.5">
+        <figure className="flex flex-col gap-1.5">
           <figcaption className="flex items-center justify-between text-[0.6875rem] text-muted-foreground">
             <span>Per day, GB</span>
             <span className="flex gap-3">
@@ -98,6 +98,25 @@ function UsageBody({ data }: { data: DataUsage }) {
               </span>
             </span>
           </figcaption>
+          <table className="sr-only">
+            <caption>Estimated data usage per day this cycle</caption>
+            <thead>
+              <tr>
+                <th scope="col">Day</th>
+                <th scope="col">Download</th>
+                <th scope="col">Upload</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bars.map((b) => (
+                <tr key={b.dayMs}>
+                  <th scope="row">{dayLabel(b.dayMs)}</th>
+                  <td>{formatBytes(b.down * 1e9)}</td>
+                  <td>{formatBytes(b.up * 1e9)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
           <div className="-ml-1 h-28" aria-hidden>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={bars} margin={{ top: 4, right: 4, bottom: 0, left: 0 }} barCategoryGap="18%">

@@ -1,18 +1,31 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Activity, ChartLine, SlidersHorizontal, Stethoscope } from "lucide-react";
+import {
+  Activity,
+  ChartLine,
+  SlidersHorizontal,
+  Stethoscope,
+} from "lucide-react";
 import { PulseProvider } from "@/state/pulse-context";
 import { useCapabilities, useConnection, useSettings } from "@/hooks/use-pulse";
 import { AppHeader } from "@/components/app-header";
 import { LiveTab } from "@/components/live/live-tab";
 import { ControlsTab } from "@/components/controls/controls-tab";
-import { DiagnosePanel } from "@/components/advisor/diagnose-tab";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 
 // recharts is heavy: load the History tab on demand.
-const HistoryTab = lazy(() => import("@/components/history/history-tab").then((m) => ({ default: m.HistoryTab })));
+const DiagnosePanel = lazy(() =>
+  import("@/components/advisor/diagnose-tab").then((m) => ({
+    default: m.DiagnosePanel,
+  })),
+);
+const HistoryTab = lazy(() =>
+  import("@/components/history/history-tab").then((m) => ({
+    default: m.HistoryTab,
+  })),
+);
 
 const TABS = [
   { value: "live", label: "Live", icon: Activity },
@@ -27,8 +40,15 @@ function focusLater(scrollId: string, focusId?: string) {
     requestAnimationFrame(() => {
       const section = document.getElementById(scrollId);
       section?.scrollIntoView({ behavior: "smooth", block: "center" });
-      const target = (focusId && document.getElementById(focusId)) || section?.querySelector<HTMLElement>("input, button");
-      target?.focus();
+      const target =
+        (focusId && document.getElementById(focusId)) ||
+        section?.querySelector<HTMLElement>("input, button");
+      if (target) target.focus();
+      else if (section) {
+        // Sections without controls (e.g. Sky view): make them programmatically focusable.
+        section.setAttribute("tabindex", "-1");
+        section.focus();
+      }
     }),
   );
 }
@@ -62,11 +82,24 @@ function Dashboard() {
 
   return (
     <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col gap-3 px-3 pt-3 pb-4 md:px-5 md:pt-4">
-      <AppHeader connection={connection} capabilities={capabilities} readOnly={settings?.readOnly ?? null} />
-      <Tabs value={tab} onValueChange={(v) => setTab(v as TabValue)} className="gap-3">
+      <AppHeader
+        connection={connection}
+        capabilities={capabilities}
+        readOnly={settings?.readOnly ?? null}
+      />
+      <Tabs
+        value={tab}
+        onValueChange={(v) => setTab(v as TabValue)}
+        className="gap-3"
+      >
         <TabsList className="w-full md:w-fit">
           {TABS.map((t, i) => (
-            <TabsTrigger key={t.value} value={t.value} className="px-2 sm:px-3" title={`${t.label} (⌘${i + 1})`}>
+            <TabsTrigger
+              key={t.value}
+              value={t.value}
+              className="px-2 sm:px-3"
+              title={`${t.label} (⌘${i + 1})`}
+            >
               <t.icon aria-hidden />
               {t.label}
             </TabsTrigger>
@@ -81,16 +114,22 @@ function Dashboard() {
           </Suspense>
         </TabsContent>
         <TabsContent value="diagnose">
-          <DiagnosePanel
-            onOpenApiKey={() => {
-              setTab("controls");
-              focusLater("api-key", "api-key-input");
-            }}
-            onOpenAiSettings={() => {
-              setTab("controls");
-              focusLater("ai-settings", "ai-provider-off");
-            }}
-          />
+          <Suspense fallback={<Skeleton className="h-64 rounded-xl" />}>
+            <DiagnosePanel
+              onOpenApiKey={() => {
+                setTab("controls");
+                focusLater("api-key", "api-key-input");
+              }}
+              onOpenSkyView={() => {
+                setTab("live");
+                focusLater("sky-view");
+              }}
+              onOpenAiSettings={() => {
+                setTab("controls");
+                focusLater("ai-settings", "ai-provider-off");
+              }}
+            />
+          </Suspense>
         </TabsContent>
         <TabsContent value="controls">
           <ControlsTab />

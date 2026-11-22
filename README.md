@@ -67,7 +67,9 @@ chmod +x StarlinkPulse_*.AppImage
 ./StarlinkPulse_*.AppImage
 ```
 
-- **Keychain**: the Anthropic API key is stored with the Secret Service API. Install and unlock **gnome-keyring** (GNOME and most desktops) or **KWallet** (KDE). Without one, a Claude API key can't be saved. Diagnose, local models and the rest of the app work normally. An opt-in fallback to a `600`-permission file is planned.
+- **Keychain**: a Claude API key is stored with the Secret Service API. Install and unlock **gnome-keyring** (GNOME and most desktops) or **KWallet** (KDE). Without one, a Claude key can't be saved. Diagnose, local models and the rest of the app work normally.
+- **No Secret Service?** You can opt in to a file instead. Start the app with `STARLINKPULSE_KEYRING_FILE=1`, for example `STARLINKPULSE_KEYRING_FILE=1 ./StarlinkPulse_*.AppImage`. The key is then saved in the app data folder (`~/.local/share/io.github.starlinkpulse/anthropic-api-key`) with `0600` permissions. The fallback is used only when the Secret Service is unavailable.
+  > **Less secure:** the file is plain text, protected only by file permissions. Anyone with access to your user account or your backups can read it. Prefer a keyring when you can.
 - **Tray icon on GNOME** requires the AppIndicator extension (for example `gnome-shell-extension-appindicator`).
 
 ## Network setup
