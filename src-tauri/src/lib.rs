@@ -7,6 +7,7 @@ pub mod export;
 pub mod keyring_store;
 pub mod models;
 pub mod notify;
+pub mod rules;
 pub mod service;
 pub mod settings;
 pub mod state;
@@ -84,6 +85,8 @@ pub fn run() {
             commands::preview_ai_payload,
             commands::analyze_network_with_ai,
             commands::get_last_ai_report,
+            commands::run_diagnostics,
+            commands::list_local_models,
             commands::get_uptime_stats,
             commands::get_data_usage,
             commands::send_test_notification,

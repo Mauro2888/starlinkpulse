@@ -16,7 +16,7 @@ import { PROFILES, type ProfileSpec } from "@/lib/mock/profiles";
 import { mockReport, mockSummary } from "@/lib/mock/advisor";
 import { mockObstructionMap } from "@/lib/mock/obstruction";
 import { mockUptime, mockUsage } from "@/lib/mock/usage";
-import { isInsufficientHistory } from "@/lib/advisor";
+import { isInsufficientHistory, isLoopbackUrl } from "@/lib/advisor";
 import type { AiReport, SnowMeltMode } from "@/types/models";
 
 const SETTINGS_KEY = "starlinkpulse.mock.settings";
@@ -47,6 +47,10 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   dataCapGb: 150,
   billingCycleDay: 1,
+  aiProvider: "off",
+  localAiUrl: "http://localhost:11434",
+  localAiKind: "ollama",
+  localAiModel: "",
 };
 
 function fail(kind: CommandError["kind"], message: string): never {
@@ -89,7 +93,7 @@ export class MockBackend implements Backend {
   constructor() {
     // Dev aid: `?mockReport` pre-seeds a saved Advisor report for UI work.
     if (typeof location !== "undefined" && new URLSearchParams(location.search).has("mockReport")) {
-      this.lastReport = mockReport(this.settings.mockProfile, this.profile, this.settings.claudeModel);
+      this.lastReport = mockReport(this.settings.mockProfile, this.profile, "rules-v1", "rules");
     }
   }
 
@@ -169,14 +173,36 @@ export class MockBackend implements Backend {
         return mockSummary(this.settings.mockProfile, this.profile);
       case "get_last_ai_report":
         return this.lastReport;
-      case "analyze_network_with_ai": {
-        if (!this.hasKey) fail("no_api_key", "No Anthropic API key saved.");
+      case "run_diagnostics": {
         if (isInsufficientHistory(mockSummary(this.settings.mockProfile, this.profile))) {
           fail("insufficient_data", "Less than 1 hour of history.");
         }
-        // Simulate model latency.
-        await new Promise((r) => setTimeout(r, 4_000 + Math.random() * 3_000));
-        this.lastReport = mockReport(this.settings.mockProfile, this.profile, this.settings.claudeModel);
+        this.lastReport = mockReport(this.settings.mockProfile, this.profile, "rules-v1", "rules");
+        return this.lastReport;
+      }
+      case "list_local_models": {
+        if (!isLoopbackUrl(this.settings.localAiUrl)) {
+          fail("ai_unavailable", `Can't reach ${this.settings.localAiUrl}.`);
+        }
+        return this.settings.localAiKind === "ollama"
+          ? ["llama3.2:3b", "qwen2.5:7b-instruct", "mistral-nemo:12b"]
+          : ["lmstudio-community/Qwen2.5-7B-Instruct-GGUF", "lmstudio-community/Llama-3.2-3B-Instruct-GGUF"];
+      }
+      case "analyze_network_with_ai": {
+        const provider = this.settings.aiProvider;
+        if (provider === "off") fail("invalid_input", "AI explanations are turned off.");
+        if (provider === "claude" && !this.hasKey) fail("no_api_key", "No Anthropic API key saved.");
+        if (provider === "local") {
+          if (!this.settings.localAiModel.trim()) fail("invalid_input", "Choose a local model in Settings.");
+          if (!isLoopbackUrl(this.settings.localAiUrl)) fail("ai_unavailable", `Can't reach ${this.settings.localAiUrl}.`);
+        }
+        if (isInsufficientHistory(mockSummary(this.settings.mockProfile, this.profile))) {
+          fail("insufficient_data", "Less than 1 hour of history.");
+        }
+        // Simulate model latency; local models are slower.
+        await new Promise((r) => setTimeout(r, (provider === "local" ? 8_000 : 4_000) + Math.random() * 3_000));
+        const model = provider === "local" ? this.settings.localAiModel : this.settings.claudeModel;
+        this.lastReport = mockReport(this.settings.mockProfile, this.profile, model, provider);
         return this.lastReport;
       }
       default:
@@ -208,6 +234,9 @@ export class MockBackend implements Backend {
     if (!/^[\w.-]+:\d{1,5}$/.test(next.dishAddress)) fail("invalid_input", "Dish address must look like host:port.");
     if (next.routerAddress && !/^[\w.-]+:\d{1,5}$/.test(next.routerAddress)) {
       fail("invalid_input", "Router address must look like host:port.");
+    }
+    if (next.aiProvider === "local" && !/^https?:\/\/\S+$/.test(next.localAiUrl)) {
+      fail("invalid_input", "Local AI address must start with http:// or https://.");
     }
     if (next.dataCapGb !== null && !(next.dataCapGb > 0)) fail("invalid_input", "Data cap must be a positive number of GB.");
     if (!(Number.isInteger(next.billingCycleDay) && next.billingCycleDay >= 1 && next.billingCycleDay <= 28)) {

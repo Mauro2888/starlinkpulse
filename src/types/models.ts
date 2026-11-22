@@ -99,9 +99,15 @@ export interface DiagnosticSummary {
   outagesByCause: [string, number][];
   worstHours: number[];
   throttledMinutes: number;
-  alignmentDeltaAzimuthDeg: number | null;
-  alignmentDeltaElevationDeg: number | null;
+  /** Correction to apply = desired − actual, azimuth wrapped to (−180, 180]; positive = rotate clockwise seen from above. */
+  azimuthCorrectionDeg: number | null;
+  /** Correction to apply = desired − actual; positive = tilt up. */
+  elevationCorrectionDeg: number | null;
+  /** True when the data comes from the mock client (simulated). */
+  isSimulated: boolean;
   weakestWifiSignalDbm: number | null;
+  /** Findings of the built-in rule engine, given to the AI to explain (empty for rules-only). */
+  ruleFindings: AiFinding[];
 }
 
 export type ConnectionState = "connecting" | "connected" | "offline" | "mock";
@@ -139,7 +145,16 @@ export interface Settings {
   dataCapGb: number | null;
   /** Day of month (1-28) when the billing cycle resets. */
   billingCycleDay: number;
+  /** Optional AI explanation provider. Default "off". */
+  aiProvider: AiProvider;
+  /** Local model server (Ollama / OpenAI-compatible), e.g. http://localhost:11434 */
+  localAiUrl: string;
+  localAiKind: LocalAiKind;
+  localAiModel: string;
 }
+
+export type AiProvider = "off" | "claude" | "local";
+export type LocalAiKind = "ollama" | "openai_compatible";
 
 export interface ObstructionMap {
   rows: number;
@@ -191,8 +206,12 @@ export interface AiFinding {
   actions: string[];
 }
 
+export type ReportSource = "rules" | "claude" | "local";
+
 export interface AiReport {
   generatedAtMs: number;
+  /** Who produced the report: built-in rule engine, Claude API, or a local model. */
+  source: ReportSource;
   /** Model that produced the report (may differ from the requested one after a fallback). */
   model: string;
   overallHealth: AiOverallHealth;

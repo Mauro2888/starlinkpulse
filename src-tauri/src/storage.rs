@@ -226,6 +226,10 @@ CREATE TABLE usage_daily (
     upload_bytes REAL NOT NULL
 );
 "#,
+    r#"
+-- Last rule-engine report (single row); the AI report stays in ai_report.
+CREATE TABLE rules_report (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL);
+"#,
 ];
 
 const LAST_CURRENT_KEY: &str = "history_last_current";
@@ -670,6 +674,27 @@ impl Db {
             [json],
         )?;
         Ok(())
+    }
+
+    pub fn save_rules_report(&self, report: &AiReport) -> Result<(), rusqlite::Error> {
+        let json = serde_json::to_string(report)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+        self.conn.execute(
+            "INSERT OR REPLACE INTO rules_report (id, json) VALUES (1, ?1)",
+            [json],
+        )?;
+        Ok(())
+    }
+
+    /// Last stored rule-engine report.
+    pub fn last_rules_report(&self) -> Result<Option<AiReport>, rusqlite::Error> {
+        let json: Option<String> = self
+            .conn
+            .query_row("SELECT json FROM rules_report WHERE id = 1", [], |r| {
+                r.get(0)
+            })
+            .optional()?;
+        Ok(json.and_then(|j| serde_json::from_str(&j).ok()))
     }
 
     /// Last stored AI report; an unreadable row (older format) yields `None`.

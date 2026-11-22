@@ -50,7 +50,7 @@ export function ApiKeyCard({ hasKey, error, onSave, onDelete }: Props) {
     <Section title="Anthropic API key" id="api-key">
       <div className="flex flex-col gap-3">
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Used only when you ask the AI Advisor for an analysis. Stored in your system keychain, never shown again.
+          Used only when you ask Claude to explain a diagnosis. Stored in your system keychain, never shown again.
         </p>
 
         {hasKey === null && !error && <p className="text-sm text-muted-foreground">Checking keychain…</p>}
@@ -115,7 +115,7 @@ export function ApiKeyCard({ hasKey, error, onSave, onDelete }: Props) {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete the API key?</AlertDialogTitle>
             <AlertDialogDescription>
-              The key is removed from your keychain. The AI Advisor stops working until you add a key again.
+              The key is removed from your keychain. Claude explanations stop working until you add a key again. Diagnose keeps working.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -1,12 +1,16 @@
-//! AI advisor (ADR-005): anonymized 24 h summary -> Anthropic Messages API -> `AiReport`.
-//! Nothing is sent without an explicit user action (`analyze_network_with_ai`).
+//! Diagnosis (ADR-005, Phase 4.6): the deterministic rule engine is the default
+//! (`run_diagnostics`); AI explanations are optional (`analyze_network_with_ai`, provider
+//! `claude` or `local`). The anonymized 24 h summary is the only data that is ever sent, and
+//! only after an explicit user action.
 
 pub mod anthropic;
+pub mod local;
 pub mod summary;
 
 use crate::error::AppError;
 use crate::keyring_store;
-use crate::models::{AiReport, DiagnosticSummary};
+use crate::models::{AiProvider, AiReport, DiagnosticSummary, ReportSource};
+use crate::rules::{self, RuleContext};
 use crate::state::{AppState, lock_db};
 use crate::time::now_ms;
 
@@ -18,11 +22,11 @@ pub fn local_utc_offset_s() -> i64 {
     chrono::Local::now().offset().local_minus_utc() as i64
 }
 
-/// Minimum minutes of history required before calling the API.
+/// Minimum minutes of history required for any diagnosis.
 pub const MIN_HISTORY_MINUTES: u32 = 60;
 
-/// Builds the summary from the active data source (exactly what `analyze` sends).
-pub async fn current_summary(state: &AppState) -> Result<DiagnosticSummary, AppError> {
+/// Summary (without rule findings) and rule context from the active data source.
+async fn gather(state: &AppState) -> Result<(DiagnosticSummary, RuleContext), AppError> {
     let now = now_ms();
     let range = summary::WINDOW_HOURS * 60;
     let db = state.current_db().await;
@@ -39,7 +43,7 @@ pub async fn current_summary(state: &AppState) -> Result<DiagnosticSummary, AppE
     let caps = state.capabilities.read().await.clone();
     let snapshot = state.snapshot.read().await.clone();
     let wifi = state.wifi_clients.read().await.clone();
-    Ok(summary::build_summary(&summary::SummaryInputs {
+    let s = summary::build_summary(&summary::SummaryInputs {
         now_ms: now,
         minutes: &minutes,
         outages: &outages,
@@ -49,17 +53,61 @@ pub async fn current_summary(state: &AppState) -> Result<DiagnosticSummary, AppE
         wifi_clients: &wifi,
         utc_offset_s: local_utc_offset_s(),
         language: LANGUAGE,
-    }))
+    });
+    let ctx = RuleContext {
+        actuators: caps.actuators,
+        alerts: snapshot.map(|s| s.alerts).unwrap_or_default(),
+        boot_count: outages.iter().filter(|o| o.cause == "BOOTING").count() as u32,
+    };
+    Ok((s, ctx))
 }
 
-/// Runs the analysis and persists the report. Fails with `insufficient_data` (without any
-/// network call or keyring access) when less than an hour of history exists. `api_key` is
-/// read from the keyring when `None`.
+/// The AI payload (= preview): summary including the rule findings.
+pub async fn current_summary(state: &AppState) -> Result<DiagnosticSummary, AppError> {
+    let (mut s, ctx) = gather(state).await?;
+    s.rule_findings = rules::evaluate(&s, &ctx).findings;
+    Ok(s)
+}
+
+/// Runs the built-in rule engine (offline, no key) and persists the report.
+pub async fn run_diagnostics(state: &AppState) -> Result<AiReport, AppError> {
+    let (payload, ctx) = gather(state).await?;
+    if payload.history_minutes < MIN_HISTORY_MINUTES {
+        return Err(AppError::InsufficientData);
+    }
+    let outcome = rules::evaluate(&payload, &ctx);
+    let report = AiReport {
+        generated_at_ms: now_ms(),
+        source: ReportSource::Rules,
+        model: rules::RULES_MODEL.to_string(),
+        overall_health: outcome.overall_health,
+        headline: outcome.headline,
+        findings: outcome.findings,
+        // Rules-only report: `ruleFindings` stays empty (the findings are the report).
+        payload,
+    };
+    let db = state.current_db().await;
+    let to_store = report.clone();
+    tokio::task::spawn_blocking(move || lock_db(&db).save_rules_report(&to_store))
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))??;
+    Ok(report)
+}
+
+/// Optional AI explanation using `settings.aiProvider`. Fails with `insufficient_data`
+/// (without any network call or keyring access) when less than an hour of history exists.
+/// For Claude, `api_key` is read from the keyring when `None`.
 pub async fn analyze(
     state: &AppState,
     client: &anthropic::AnthropicClient,
     api_key: Option<&str>,
 ) -> Result<AiReport, AppError> {
+    let settings = state.settings.read().await.clone();
+    if settings.ai_provider == AiProvider::Off {
+        return Err(AppError::InvalidInput(
+            "AI explanations are turned off".into(),
+        ));
+    }
     let _busy = state
         .ai_lock
         .try_lock()
@@ -68,28 +116,47 @@ pub async fn analyze(
     if payload.history_minutes < MIN_HISTORY_MINUTES {
         return Err(AppError::InsufficientData);
     }
-    let stored_key;
-    let key = match api_key {
-        Some(k) => k,
-        None => {
-            stored_key = self::api_key().await?;
-            stored_key.as_str()
+    let text = anthropic::user_message(&payload);
+    let (source, model, output) = match settings.ai_provider {
+        AiProvider::Claude => {
+            let stored_key;
+            let key = match api_key {
+                Some(k) => k,
+                None => {
+                    stored_key = self::api_key().await?;
+                    stored_key.as_str()
+                }
+            };
+            let model = settings.claude_model.clone();
+            tracing::info!(model = %model, history_minutes = payload.history_minutes, "requesting Claude analysis");
+            let resp = client.analyze(key, &model, &text).await?;
+            let used = if resp.model.is_empty() {
+                model
+            } else {
+                resp.model
+            };
+            (ReportSource::Claude, used, resp.output)
+        }
+        AiProvider::Local => {
+            let local = local::LocalClient::new(&settings.local_ai_url, settings.local_ai_kind)?;
+            let model = settings.local_ai_model.clone();
+            tracing::info!(model = %model, kind = ?settings.local_ai_kind, "requesting local AI analysis");
+            let out = local.analyze(&model, &text).await?;
+            (ReportSource::Local, model, out)
+        }
+        AiProvider::Off => {
+            return Err(AppError::InvalidInput(
+                "AI explanations are turned off".into(),
+            ));
         }
     };
-    let model = state.settings.read().await.claude_model.clone();
-    let text = anthropic::user_message(&payload);
-    tracing::info!(model = %model, history_minutes = payload.history_minutes, "requesting AI analysis");
-    let resp = client.analyze(key, &model, &text).await?;
     let report = AiReport {
         generated_at_ms: now_ms(),
-        model: if resp.model.is_empty() {
-            model
-        } else {
-            resp.model
-        },
-        overall_health: resp.output.overall_health,
-        headline: resp.output.headline,
-        findings: resp.output.findings,
+        source,
+        model,
+        overall_health: output.overall_health,
+        headline: output.headline,
+        findings: output.findings,
         payload,
     };
     let db = state.current_db().await;
@@ -98,6 +165,14 @@ pub async fn analyze(
         .await
         .map_err(|e| AppError::Internal(e.to_string()))??;
     Ok(report)
+}
+
+/// Models on the configured local server.
+pub async fn list_local_models(state: &AppState) -> Result<Vec<String>, AppError> {
+    let s = state.settings.read().await.clone();
+    local::LocalClient::new(&s.local_ai_url, s.local_ai_kind)?
+        .list_models()
+        .await
 }
 
 /// Reads the API key from the keyring (kept in memory only for this request).
@@ -163,9 +238,92 @@ mod tests {
         lock_db(&state.db).insert_backfill(&pts, &[], now).unwrap();
     }
 
+    fn claude_settings() -> Settings {
+        Settings {
+            ai_provider: crate::models::AiProvider::Claude,
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn provider_off_is_rejected_before_anything_else() {
+        let state = AppState::in_memory(Settings::default()).unwrap();
+        seed(&state, 90);
+        let client = anthropic::AnthropicClient::with_base_url(
+            "http://127.0.0.1:1",
+            Duration::from_millis(1),
+        )
+        .unwrap();
+        let e = analyze(&state, &client, Some("k")).await.unwrap_err();
+        assert_eq!(e.kind(), "invalid_input");
+        assert_eq!(
+            e.to_string(),
+            "invalid input: AI explanations are turned off"
+        );
+    }
+
+    #[tokio::test]
+    async fn rules_report_works_offline_and_is_persisted() {
+        let state = AppState::in_memory(Settings::default()).unwrap();
+        seed(&state, 59);
+        assert_eq!(
+            run_diagnostics(&state).await.unwrap_err().kind(),
+            "insufficient_data"
+        );
+        seed(&state, 90);
+        let r = run_diagnostics(&state).await.unwrap();
+        assert_eq!(r.source, ReportSource::Rules);
+        assert_eq!(r.model, "rules-v1");
+        assert!(!r.findings.is_empty());
+        assert!(r.payload.rule_findings.is_empty());
+        assert_eq!(
+            lock_db(&state.db).last_rules_report().unwrap(),
+            Some(r.clone())
+        );
+        // The AI report slot is untouched.
+        assert_eq!(lock_db(&state.db).last_ai_report().unwrap(), None);
+        // The AI payload (preview) carries the same findings.
+        let preview = current_summary(&state).await.unwrap();
+        assert_eq!(preview.rule_findings, r.findings);
+    }
+
+    #[tokio::test]
+    async fn local_provider_end_to_end() {
+        let body = serde_json::json!({
+            "message": {"content": local::tests::output_json()}, "done_reason": "stop"
+        })
+        .to_string();
+        let (url, seen) = local::tests::server(vec![(200, body)]).await;
+        let state = AppState::in_memory(Settings {
+            ai_provider: crate::models::AiProvider::Local,
+            local_ai_url: url,
+            local_ai_model: "llama3.2:3b".into(),
+            ..Default::default()
+        })
+        .unwrap();
+        seed(&state, 90);
+        let preview = current_summary(&state).await.unwrap();
+        let unused = anthropic::AnthropicClient::with_base_url(
+            "http://127.0.0.1:1",
+            Duration::from_millis(1),
+        )
+        .unwrap();
+        let r = analyze(&state, &unused, None).await.unwrap();
+        assert_eq!(r.source, ReportSource::Local);
+        assert_eq!(r.model, "llama3.2:3b");
+        assert_eq!(r.payload, preview);
+        assert!(!r.payload.rule_findings.is_empty());
+        let req = seen.lock().unwrap()[0].clone();
+        assert!(
+            req.contains("ruleFindings"),
+            "rule findings are sent to the model"
+        );
+        assert_eq!(lock_db(&state.db).last_ai_report().unwrap(), Some(r));
+    }
+
     #[tokio::test]
     async fn insufficient_history_fails_without_network() {
-        let state = AppState::in_memory(Settings::default()).unwrap();
+        let state = AppState::in_memory(claude_settings()).unwrap();
         seed(&state, 59);
         // Closed port: any network attempt would fail with "offline" instead.
         let client = anthropic::AnthropicClient::with_base_url(
@@ -187,7 +345,7 @@ mod tests {
 
     #[tokio::test]
     async fn analyze_persists_report_with_exact_payload() {
-        let state = Arc::new(AppState::in_memory(Settings::default()).unwrap());
+        let state = Arc::new(AppState::in_memory(claude_settings()).unwrap());
         seed(&state, 90);
         let preview = current_summary(&state).await.unwrap();
         assert_eq!(preview.history_minutes, 90);

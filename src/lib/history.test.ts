@@ -102,18 +102,13 @@ describe("explain", () => {
 
 describe("validateSettings", () => {
   const ok = {
-    dishAddress: "192.168.100.1:9200",
-    routerAddress: "",
-    readOnly: true,
-    mockMode: "auto" as const,
-    mockProfile: "mini" as const,
-    livePollIntervalS: 3,
-    claudeModel: "claude-sonnet-5-5",
-    closeToTray: true,
+    ...DEFAULT_SETTINGS,
     notifications: { ...DEFAULT_SETTINGS.notifications },
+    routerAddress: "",
+    mockProfile: "mini" as const,
     dataCapGb: null,
-    billingCycleDay: 1,
   };
+
   it("accepts defaults and an empty router", () => expect(validateSettings(ok)).toEqual({}));
   it("rejects bad addresses and intervals", () => {
     const e = validateSettings({ ...ok, dishAddress: "192.168.100.1", routerAddress: "x:99999", livePollIntervalS: 0 });

@@ -4,17 +4,19 @@ import {
   CircleCheck,
   Cpu,
   Info,
+  ListChecks,
   OctagonAlert,
   PlugZap,
   RefreshCw,
   Satellite,
   Settings2,
+  Sparkles,
   TreePine,
   TriangleAlert,
   Wifi,
 } from "lucide-react";
-import type { AiFinding, AiFindingCategory, AiOverallHealth, AiReport, AiSeverity } from "@/types/models";
-import { groupFindings, SEVERITY_LABELS } from "@/lib/advisor";
+import type { AiFinding, AiFindingCategory, AiOverallHealth, AiReport, AiSeverity, ReportSource } from "@/types/models";
+import { groupFindings, SEVERITY_LABELS, SOURCE_LABELS } from "@/lib/advisor";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -54,6 +56,24 @@ export function HealthBadge({ health }: { health: AiOverallHealth }) {
   );
 }
 
+const SOURCE_ICON: Record<ReportSource, ReactNode> = {
+  rules: <ListChecks />,
+  claude: <Sparkles />,
+  local: <Cpu />,
+};
+
+export function SourceBadge({ source }: { source: ReportSource }) {
+  return (
+    <span className="inline-flex h-6 items-center gap-1.5 rounded-full bg-muted/70 px-2.5 text-xs text-muted-foreground ring-1 ring-border [&_svg]:size-3.5">
+      <span aria-hidden>{SOURCE_ICON[source] ?? <Sparkles />}</span>
+      <span>
+        <span className="sr-only">Source: </span>
+        {SOURCE_LABELS[source] ?? source}
+      </span>
+    </span>
+  );
+}
+
 interface Props {
   report: AiReport;
   onRerun?: () => void;
@@ -70,7 +90,10 @@ export function ReportView({ report, onRerun, rerunDisabled }: Props) {
   return (
     <article className="flex flex-col gap-3" aria-labelledby="report-headline">
       <header className="rounded-xl bg-card p-4 ring-1 ring-border">
-        <HealthBadge health={report.overallHealth} />
+        <div className="flex flex-wrap items-center gap-2">
+          <HealthBadge health={report.overallHealth} />
+          <SourceBadge source={report.source} />
+        </div>
         <h2 id="report-headline" className="mt-2.5 text-base leading-snug font-semibold text-balance">
           {report.headline}
         </h2>
@@ -102,11 +125,18 @@ export function ReportView({ report, onRerun, rerunDisabled }: Props) {
 
       <footer className="flex flex-wrap items-center justify-between gap-2 px-1 text-[0.6875rem] text-muted-foreground">
         <span>
-          Generated {generated} by <span className="num text-foreground/80">{report.model}</span>
+          {report.source === "rules" ? (
+            <>Generated {generated} by the built-in rules, on this computer</>
+          ) : (
+            <>
+              Generated {generated} by <span className="num text-foreground/80">{report.model}</span>
+              {report.source === "local" ? " (local model)" : ""}
+            </>
+          )}
         </span>
         {onRerun && (
           <Button size="sm" variant="outline" onClick={onRerun} disabled={rerunDisabled}>
-            <RefreshCw aria-hidden /> Run again
+            <RefreshCw aria-hidden /> {report.source === "rules" ? "Run again" : "Explain again"}
           </Button>
         )}
       </footer>

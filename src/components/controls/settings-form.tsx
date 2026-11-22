@@ -1,7 +1,8 @@
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from "react";
-import { BellRing, Loader2, TriangleAlert } from "lucide-react";
-import type { MockMode, MockProfile, NotificationSettings, Settings } from "@/types/models";
-import { CLAUDE_MODEL_OPTIONS } from "@/lib/advisor";
+import { BellRing, Loader2, RefreshCw, TriangleAlert } from "lucide-react";
+import type { AiProvider, LocalAiKind, MockMode, MockProfile, NotificationSettings, Settings } from "@/types/models";
+import { CLAUDE_MODEL_OPTIONS, isLoopbackUrl } from "@/lib/advisor";
+import { normalizeError } from "@/lib/errors";
 import { api } from "@/lib/api";
 import { toastError, toastSuccess } from "@/lib/notify";
 import {
@@ -236,14 +237,7 @@ export function SettingsForm({ settings, onSave, readOnlySwitchId = "read-only-s
           </Field>
         </fieldset>
 
-        <fieldset className="grid gap-3 border-t border-border pt-4">
-          <legend className="eyebrow mb-2">AI Advisor</legend>
-          <ModelPicker
-            value={draft.claudeModel}
-            error={errors.claudeModel}
-            onChange={(v) => set("claudeModel", v)}
-          />
-        </fieldset>
+        <AiFields draft={draft} saved={settings} errors={errors} set={set} />
 
         <div className="flex items-center justify-end gap-2 border-t border-border pt-3">
           {dirty && <span className="mr-auto text-xs text-muted-foreground">Unsaved changes</span>}
@@ -340,7 +334,7 @@ function ModelPicker({ value, error, onChange }: { value: string; error?: string
           </SelectContent>
         </Select>
         <p id="claude-model-desc" className={cn("text-[0.6875rem]", error && !custom ? "text-critical" : "text-muted-foreground")}>
-          {error && !custom ? error : custom ? "Enter any model ID your key can use." : "Used for AI Advisor analysis."}
+          {error && !custom ? error : custom ? "Enter any model ID your key can use." : "Used for AI explanations."}
         </p>
       </div>
       {custom && (
@@ -524,5 +518,264 @@ function NotificationFields({
         </Button>
       </div>
     </fieldset>
+  );
+}
+
+const PROVIDERS: { value: AiProvider; label: string; hint: string }[] = [
+  { value: "off", label: "Off", hint: "Built-in rules only. Nothing is sent anywhere." },
+  { value: "local", label: "Local model", hint: "Ollama, LM Studio or llama.cpp on your computer. Free, no key." },
+  { value: "claude", label: "Claude", hint: "Anthropic API with your own key. Billed to your Anthropic account." },
+];
+
+const LOCAL_KIND_LABELS: Record<LocalAiKind, string> = {
+  ollama: "Ollama",
+  openai_compatible: "OpenAI-compatible (LM Studio, llama.cpp)",
+};
+
+const LOCAL_DEFAULT_URL: Record<LocalAiKind, string> = {
+  ollama: "http://localhost:11434",
+  openai_compatible: "http://localhost:1234",
+};
+
+function AiFields({
+  draft,
+  saved,
+  errors,
+  set,
+}: {
+  draft: Settings;
+  saved: Settings;
+  errors: SettingsErrors;
+  set: <K extends keyof Settings>(k: K, v: Settings[K]) => void;
+}) {
+  const remote = draft.aiProvider === "local" && draft.localAiUrl.trim() !== "" && !isLoopbackUrl(draft.localAiUrl.trim());
+  return (
+    <fieldset id="ai-settings" className="flex flex-col gap-3 border-t border-border pt-4">
+      <legend className="eyebrow mb-2">AI explanations</legend>
+      <p className="-mt-1 text-xs text-muted-foreground">
+        Optional. Diagnose always works with the built-in rules; AI adds a plain-language explanation when you ask for one.
+      </p>
+      <div role="radiogroup" aria-label="AI provider" className="grid gap-1.5">
+        {PROVIDERS.map((p) => {
+          const id = `ai-provider-${p.value}`;
+          const checked = draft.aiProvider === p.value;
+          return (
+            <label
+              key={p.value}
+              htmlFor={id}
+              className={cn(
+                "flex cursor-pointer items-start gap-2.5 rounded-lg px-3 py-2 ring-1 transition-colors",
+                checked ? "bg-primary/10 ring-primary/50" : "ring-border hover:bg-muted/50",
+              )}
+            >
+              <input
+                id={id}
+                type="radio"
+                name="ai-provider"
+                value={p.value}
+                checked={checked}
+                onChange={() => set("aiProvider", p.value)}
+                aria-describedby={`${id}-desc`}
+                className="mt-0.5 size-3.5 shrink-0 accent-[var(--primary)]"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium">{p.label}</span>
+                <span id={`${id}-desc`} className="block text-[0.6875rem] text-muted-foreground">
+                  {p.hint}
+                </span>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+
+      {draft.aiProvider === "claude" && (
+        <>
+          <ModelPicker value={draft.claudeModel} error={errors.claudeModel} onChange={(v) => set("claudeModel", v)} />
+          <p className="text-[0.6875rem] text-muted-foreground">
+            {saved.aiProvider === "claude"
+              ? "Your API key is managed in the Anthropic API key card."
+              : "After saving, add your API key in the Anthropic API key card that appears."}
+          </p>
+        </>
+      )}
+
+      {draft.aiProvider === "local" && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Server type" hint="How StarlinkPulse talks to your model server.">
+            {(p) => (
+              <Select
+                value={draft.localAiKind}
+                onValueChange={(v) => {
+                  const kind = v as LocalAiKind;
+                  // Switch the default port too, unless the user typed a custom address.
+                  if (Object.values(LOCAL_DEFAULT_URL).includes(draft.localAiUrl)) set("localAiUrl", LOCAL_DEFAULT_URL[kind]);
+                  set("localAiKind", kind);
+                }}
+              >
+                <SelectTrigger id={p.id} aria-describedby={p["aria-describedby"]} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(LOCAL_KIND_LABELS) as LocalAiKind[]).map((k) => (
+                    <SelectItem key={k} value={k}>
+                      {LOCAL_KIND_LABELS[k]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </Field>
+          <Field label="Server address" error={errors.localAiUrl} hint={`Default ${LOCAL_DEFAULT_URL[draft.localAiKind]}`}>
+            {(p) => (
+              <Input
+                {...p}
+                value={draft.localAiUrl}
+                onChange={(e) => set("localAiUrl", e.target.value)}
+                spellCheck={false}
+                autoCapitalize="off"
+                placeholder={LOCAL_DEFAULT_URL[draft.localAiKind]}
+                className="num"
+              />
+            )}
+          </Field>
+          {remote && (
+            <p role="alert" className="flex items-start gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs ring-1 ring-warning/40 sm:col-span-2">
+              <TriangleAlert className="mt-px size-3.5 shrink-0 text-warning" aria-hidden />
+              <span>
+                This address is not this computer. Your connection summary will be sent over the network to it when you
+                ask for an explanation.
+              </span>
+            </p>
+          )}
+          <div className="sm:col-span-2">
+            <LocalModelPicker
+              value={draft.localAiModel}
+              error={errors.localAiModel}
+              onChange={(v) => set("localAiModel", v)}
+              serverSaved={
+                saved.aiProvider === "local" &&
+                saved.localAiUrl === draft.localAiUrl &&
+                saved.localAiKind === draft.localAiKind
+              }
+            />
+          </div>
+        </div>
+      )}
+    </fieldset>
+  );
+}
+
+const OTHER_MODEL = "__other__";
+
+/** Models from `list_local_models` (for the saved server) with a free-text fallback. */
+function LocalModelPicker({
+  value,
+  error,
+  onChange,
+  serverSaved,
+}: {
+  value: string;
+  error?: string;
+  onChange: (v: string) => void;
+  serverSaved: boolean;
+}) {
+  const [models, setModels] = useState<string[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [typing, setTyping] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      setModels(await api.listLocalModels());
+    } catch (e) {
+      setModels(null);
+      setLoadError(normalizeError(e).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (serverSaved) void load();
+    else setModels(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverSaved]);
+
+  const list = models ?? [];
+  const useSelect = list.length > 0 && !typing && (value === "" || list.includes(value));
+  const hint = !serverSaved
+    ? "Save settings to load the models from this server, or type a model name."
+    : loadError
+      ? `Couldn't list models: ${loadError} Type a model name instead.`
+      : list.length === 0 && !loading
+        ? "No models found on the server. Install one (e.g. ollama pull llama3.2:3b) or type a name."
+        : "Models installed on your server.";
+
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <Label htmlFor="local-model" className="text-xs">
+          Model
+        </Label>
+        <Button
+          type="button"
+          size="xs"
+          variant="ghost"
+          onClick={() => void load()}
+          disabled={!serverSaved || loading}
+          aria-label="Refresh model list"
+        >
+          <RefreshCw className={cn(loading && "animate-spin motion-reduce:animate-none")} aria-hidden />
+          Refresh
+        </Button>
+      </div>
+      {useSelect ? (
+        <Select
+          value={value || undefined}
+          onValueChange={(v) => {
+            if (v === OTHER_MODEL) {
+              setTyping(true);
+              return;
+            }
+            onChange(v);
+          }}
+        >
+          <SelectTrigger
+            id="local-model"
+            aria-describedby="local-model-desc"
+            aria-invalid={error ? true : undefined}
+            className="w-full"
+          >
+            <SelectValue placeholder="Choose a model" />
+          </SelectTrigger>
+          <SelectContent>
+            {list.map((m) => (
+              <SelectItem key={m} value={m}>
+                {m}
+              </SelectItem>
+            ))}
+            <SelectItem value={OTHER_MODEL}>Type a model name…</SelectItem>
+          </SelectContent>
+        </Select>
+      ) : (
+        <Input
+          id="local-model"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          spellCheck={false}
+          autoCapitalize="off"
+          placeholder="llama3.2:3b"
+          aria-describedby="local-model-desc"
+          aria-invalid={error ? true : undefined}
+          className="num"
+        />
+      )}
+      <p id="local-model-desc" className={cn("text-[0.6875rem]", error ? "text-critical" : "text-muted-foreground")}>
+        {error ?? hint}
+      </p>
+    </div>
   );
 }

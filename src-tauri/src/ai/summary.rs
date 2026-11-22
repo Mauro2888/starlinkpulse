@@ -178,6 +178,8 @@ pub fn build_summary(inp: &SummaryInputs<'_>) -> DiagnosticSummary {
         )
         .map(|d| round(d, 1)),
         weakest_wifi_signal_dbm: weakest_signal_dbm(inp.wifi_clients),
+        // Filled by the caller from the rule engine when building the AI payload.
+        rule_findings: Vec::new(),
     }
 }
 

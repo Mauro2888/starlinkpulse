@@ -155,6 +155,8 @@ pub struct DiagnosticSummary {
     pub alignment_delta_elevation_deg: Option<f64>,
     /// Weakest Wi-Fi client signal in dBm, if a Starlink router is present.
     pub weakest_wifi_signal_dbm: Option<f64>,
+    /// Findings of the built-in rule engine, given to the AI to explain (empty for rules-only).
+    pub rule_findings: Vec<AiFinding>,
 }
 
 /// Connection state of the dish client.
@@ -232,6 +234,12 @@ pub struct Settings {
     pub data_cap_gb: Option<f64>,
     /// Day of month (1-28) when the billing cycle resets.
     pub billing_cycle_day: u32,
+    /// Optional AI explanation provider. Default off.
+    pub ai_provider: AiProvider,
+    /// Local model server (Ollama / OpenAI-compatible), e.g. `http://localhost:11434`.
+    pub local_ai_url: String,
+    pub local_ai_kind: LocalAiKind,
+    pub local_ai_model: String,
 }
 
 /// Desktop notification preferences.
@@ -326,6 +334,10 @@ impl Default for Settings {
             notifications: NotificationSettings::default(),
             data_cap_gb: None,
             billing_cycle_day: 1,
+            ai_provider: AiProvider::Off,
+            local_ai_url: "http://localhost:11434".into(),
+            local_ai_kind: LocalAiKind::Ollama,
+            local_ai_model: String::new(),
         }
     }
 }
@@ -382,11 +394,44 @@ pub struct AiFinding {
     pub actions: Vec<String>,
 }
 
-/// Result of `analyze_network_with_ai`, persisted as the last report.
+/// Who produced a report.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ReportSource {
+    Rules,
+    /// Default for reports stored before Phase 4.6 (they all came from Claude).
+    #[default]
+    Claude,
+    Local,
+}
+
+/// Optional AI explanation provider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AiProvider {
+    #[default]
+    Off,
+    Claude,
+    Local,
+}
+
+/// Local model server API flavour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum LocalAiKind {
+    #[default]
+    Ollama,
+    OpenaiCompatible,
+}
+
+/// Diagnosis report (rule engine, Claude or local model), persisted as the last report.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiReport {
     pub generated_at_ms: i64,
+    /// Who produced the report: built-in rule engine, Claude API, or a local model.
+    #[serde(default)]
+    pub source: ReportSource,
     /// Model that produced the report (may differ from the requested one after a fallback).
     pub model: String,
     pub overall_health: AiOverallHealth,

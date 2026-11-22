@@ -261,6 +261,18 @@ pub async fn analyze_network_with_ai(state: State<'_, Arc<AppState>>) -> CmdResu
     Ok(crate::ai::analyze(&state, &client, None).await?)
 }
 
+/// Built-in rule engine diagnosis (offline, no key).
+#[tauri::command]
+pub async fn run_diagnostics(state: State<'_, Arc<AppState>>) -> CmdResult<AiReport> {
+    Ok(crate::ai::run_diagnostics(&state).await?)
+}
+
+/// Models available on the configured local AI server.
+#[tauri::command]
+pub async fn list_local_models(state: State<'_, Arc<AppState>>) -> CmdResult<Vec<String>> {
+    Ok(crate::ai::list_local_models(&state).await?)
+}
+
 #[tauri::command]
 pub async fn get_last_ai_report(state: State<'_, Arc<AppState>>) -> CmdResult<Option<AiReport>> {
     let db = state.current_db().await;

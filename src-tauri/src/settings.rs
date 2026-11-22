@@ -95,6 +95,21 @@ pub fn validate(mut s: Settings) -> Result<Settings, AppError> {
             ));
         }
     }
+    s.local_ai_url = s.local_ai_url.trim().trim_end_matches('/').to_string();
+    match reqwest::Url::parse(&s.local_ai_url) {
+        Ok(u) if matches!(u.scheme(), "http" | "https") && u.host_str().is_some() => {}
+        _ => {
+            return Err(AppError::InvalidInput(
+                "localAiUrl must be an http:// or https:// URL".into(),
+            ));
+        }
+    }
+    s.local_ai_model = s.local_ai_model.trim().to_string();
+    if s.local_ai_model.len() > 200 || s.local_ai_model.chars().any(char::is_control) {
+        return Err(AppError::InvalidInput(
+            "localAiModel is not a valid model name".into(),
+        ));
+    }
     s.claude_model = s.claude_model.trim().to_string();
     if s.claude_model.is_empty()
         || s.claude_model.len() > 100
@@ -182,6 +197,43 @@ mod tests {
             ..Default::default()
         };
         assert!(validate(bad_dish).is_err(), "dish address stays mandatory");
+    }
+
+    #[test]
+    fn local_ai_settings() {
+        use crate::models::{AiProvider, LocalAiKind};
+        let d = Settings::default();
+        assert_eq!(d.ai_provider, AiProvider::Off);
+        assert_eq!(d.local_ai_url, "http://localhost:11434");
+        assert_eq!(d.local_ai_kind, LocalAiKind::Ollama);
+        assert_eq!(d.local_ai_model, "");
+        let ok = Settings {
+            local_ai_url: " https://gpu-box.lan:1234/ ".into(),
+            local_ai_model: " llama3.2:3b ".into(),
+            local_ai_kind: LocalAiKind::OpenaiCompatible,
+            ..Default::default()
+        };
+        let v = validate(ok).unwrap();
+        assert_eq!(v.local_ai_url, "https://gpu-box.lan:1234");
+        assert_eq!(v.local_ai_model, "llama3.2:3b");
+        for bad in [
+            "",
+            "localhost:11434",
+            "ftp://x",
+            "file:///etc/passwd",
+            "http://",
+        ] {
+            let s = Settings {
+                local_ai_url: bad.into(),
+                ..Default::default()
+            };
+            assert!(validate(s).is_err(), "{bad}");
+        }
+        let json = serde_json::to_value(Settings::default()).unwrap();
+        assert_eq!(json["aiProvider"], "off");
+        assert_eq!(json["localAiKind"], "ollama");
+        let s: Settings = serde_json::from_str(r#"{"localAiKind":"openai_compatible"}"#).unwrap();
+        assert_eq!(s.local_ai_kind, LocalAiKind::OpenaiCompatible);
     }
 
     #[test]

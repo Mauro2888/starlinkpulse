@@ -39,6 +39,11 @@ local time), NO_DOWNLINK / NO_PINGS / NO_SCHEDULE outages without obstruction. \
 deprioritized or limited by Starlink, not a fault of the equipment.
 - Hardware or power: BOOTING outages (reboots), thermal issues, power problems.
 
+The payload contains `ruleFindings`: the conclusions of the app's deterministic rule engine, \
+computed from the same data. Explain them in plain language, order them by impact, and merge \
+duplicates. Keep their numbers. Add a finding of your own only when the data clearly supports \
+it, and never contradict a rule finding without citing the numbers that disprove it.
+
 Rules:
 - Use only the data in the payload. Never invent measurements, causes or device details. \
 `null` means the value is not available for this dish.
@@ -192,17 +197,25 @@ pub fn parse_success(body: &str) -> Result<AiResponse, AppError> {
     if text.trim().is_empty() {
         return Err(AppError::AiInvalidResponse("no text block".into()));
     }
-    let output: AiOutput = serde_json::from_str(text.trim())
-        .map_err(|e| AppError::AiInvalidResponse(format!("output does not match schema: {e}")))?;
+    let output = parse_output(&text)?;
     let model = v
         .get("model")
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
-    Ok(AiResponse {
-        model,
-        output: sanitize(output)?,
-    })
+    Ok(AiResponse { model, output })
+}
+
+/// Parses and sanitizes model output text against the report schema (shared by all
+/// providers).
+pub fn parse_output(text: &str) -> Result<AiOutput, AppError> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Err(AppError::AiInvalidResponse("empty answer".into()));
+    }
+    let output: AiOutput = serde_json::from_str(text)
+        .map_err(|e| AppError::AiInvalidResponse(format!("output does not match schema: {e}")))?;
+    sanitize(output)
 }
 
 fn api_error_message(body: &str) -> Option<String> {

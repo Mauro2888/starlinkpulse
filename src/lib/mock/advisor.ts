@@ -1,6 +1,6 @@
 // Canned AI Advisor data for the in-browser mock (dev only). No network calls.
 
-import type { AiFinding, AiOverallHealth, AiReport, DiagnosticSummary, MockProfile } from "@/types/models";
+import type { AiFinding, AiOverallHealth, AiReport, DiagnosticSummary, MockProfile, ReportSource } from "@/types/models";
 import type { ProfileSpec } from "@/lib/mock/profiles";
 
 export function mockSummary(profile: MockProfile, p: ProfileSpec): DiagnosticSummary {
@@ -20,9 +20,11 @@ export function mockSummary(profile: MockProfile, p: ProfileSpec): DiagnosticSum
       outagesByCause: [],
       worstHours: [],
       throttledMinutes: 0,
-      alignmentDeltaAzimuthDeg: null,
-      alignmentDeltaElevationDeg: null,
+      azimuthCorrectionDeg: null,
+      elevationCorrectionDeg: null,
+      isSimulated: true,
       weakestWifiSignalDbm: null,
+      ruleFindings: [],
     };
   }
   const outageCount = Math.round(p.outagesPerDay);
@@ -43,9 +45,11 @@ export function mockSummary(profile: MockProfile, p: ProfileSpec): DiagnosticSum
     outagesByCause: [...byCause.entries()],
     worstHours: [20, 21, 22],
     throttledMinutes: profile === "throttled" ? 1_312 : 0,
-    alignmentDeltaAzimuthDeg: profile === "mini" ? 11.2 : p.capabilities.actuators === "yes" ? null : 1.4,
-    alignmentDeltaElevationDeg: profile === "mini" ? -2.1 : p.capabilities.actuators === "yes" ? null : 0.6,
+    azimuthCorrectionDeg: profile === "mini" ? 11.2 : p.capabilities.actuators === "yes" ? null : 1.4,
+    elevationCorrectionDeg: profile === "mini" ? 2.1 : p.capabilities.actuators === "yes" ? null : 0.4,
+    isSimulated: true,
     weakestWifiSignalDbm: p.capabilities.hasRouter ? -71 : null,
+    ruleFindings: canned(profile, p).findings,
   };
 }
 
@@ -67,8 +71,8 @@ const eveningFinding: AiFinding = {
   actions: ["Schedule large downloads or backups outside 19:00–23:00"],
 };
 
-export function mockReport(profile: MockProfile, p: ProfileSpec, model: string): AiReport {
-  const payload = mockSummary(profile, p);
+/** Canned findings per profile; used as the rule engine output and echoed by "AI" reports. */
+function canned(profile: MockProfile, p: ProfileSpec): { overallHealth: AiOverallHealth; headline: string; findings: AiFinding[] } {
   let overallHealth: AiOverallHealth = "good";
   let headline = "Your connection was healthy over the last 24 hours.";
   const findings: AiFinding[] = [];
@@ -93,7 +97,7 @@ export function mockReport(profile: MockProfile, p: ProfileSpec, model: string):
       severity: "warning",
       title: "Packet loss is high during dropouts",
       detail: "Average drop rate is 6%. Outside the obstruction events, the network looks normal, so fixing the view should fix this too.",
-      actions: ["Fix the obstruction first, then run the Advisor again"],
+      actions: ["Fix the obstruction first, then run diagnostics again"],
     });
   } else if (profile === "throttled") {
     overallHealth = "fair";
@@ -146,5 +150,11 @@ export function mockReport(profile: MockProfile, p: ProfileSpec, model: string):
     });
   }
 
-  return { generatedAtMs: Date.now(), model, overallHealth, headline, findings, payload };
+  return { overallHealth, headline, findings };
+}
+
+export function mockReport(profile: MockProfile, p: ProfileSpec, model: string, source: ReportSource): AiReport {
+  const payload = mockSummary(profile, p);
+  const c = canned(profile, p);
+  return { generatedAtMs: Date.now(), source, model, ...c, payload };
 }

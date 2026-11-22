@@ -63,6 +63,7 @@ export function ControlsTab() {
           onRun={runAction}
           onOpenSettings={focusReadOnly}
         />
+        {settings?.aiProvider === "claude" && (
         <ApiKeyCard
           hasKey={key.hasKey}
           error={key.error?.message ?? null}
@@ -84,6 +85,7 @@ export function ControlsTab() {
             }
           }}
         />
+        )}
         <ExportCard />
       </div>
       <div className="min-w-0">

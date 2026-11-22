@@ -1,12 +1,12 @@
 # StarlinkPulse
 
-StarlinkPulse is a small desktop app for macOS, Windows and Linux. It monitors your Starlink dish through the dish's local API. It lives in the menu bar / system tray and shows live speed, latency, packet loss, obstructions and alerts. It keeps 48 hours of history on your computer, and its built-in **Diagnose** tab explains what is slowing your connection down. That works offline, for free and without an account. If you want, an AI model can add a plain-language explanation: Claude with your own API key, or a local model that never leaves your computer. It works with every dish model it can reach and only shows features your dish and firmware support.
+StarlinkPulse is a small desktop app for macOS, Windows and Linux. It monitors your Starlink dish through the dish's local API. It lives in the menu bar / system tray and shows live speed, latency, packet loss, obstructions and alerts. It keeps 48 hours of history on your computer, and its built-in **Diagnose** tab explains what is slowing your connection down. That works offline, for free and without an account. If you want, an AI model can add a plain-language explanation: Claude with your own API key, or a local model running on your own computer. It works with every dish model it can reach and only shows features your dish and firmware support.
 
 | Tray popup | Desktop window |
 |---|---|
 | ![Live tab in the tray popup](docs/screenshots/live-tray.png) | ![Live tab in a desktop window](docs/screenshots/live-desktop.png) |
 | ![Obstruction map and alignment helper](docs/screenshots/sky-tray.png) | ![History tab with uptime, data usage and charts](docs/screenshots/history-desktop.png) |
-| ![Diagnose report](docs/screenshots/advisor-tray.png) | |
+| ![Diagnose report from the built-in rules](docs/screenshots/diagnose-tray.png) | |
 
 <sub>Screenshots taken in demo mode with simulated data.</sub>
 

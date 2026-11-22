@@ -1,4 +1,5 @@
 import type { MockMode, MockProfile, Settings } from "@/types/models";
+import { isHttpUrl } from "@/lib/advisor";
 
 export type SettingsErrors = Partial<Record<keyof Settings | "quietHours", string>>;
 
@@ -27,6 +28,10 @@ export function validateSettings(s: Settings): SettingsErrors {
   }
   if (!Number.isInteger(s.billingCycleDay) || s.billingCycleDay < 1 || s.billingCycleDay > 28) {
     e.billingCycleDay = "Pick a day between 1 and 28.";
+  }
+  if (s.aiProvider === "local") {
+    if (!isHttpUrl(s.localAiUrl.trim())) e.localAiUrl = "Use an http:// or https:// address, for example http://localhost:11434.";
+    if (!s.localAiModel.trim()) e.localAiModel = "Choose or type the name of a model on your server.";
   }
   const { quietStartHour: qs, quietEndHour: qe } = s.notifications;
   if ((qs === null) !== (qe === null)) e.quietHours = "Set both a start and an end, or turn quiet hours off.";

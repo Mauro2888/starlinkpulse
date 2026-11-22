@@ -1,11 +1,11 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Activity, ChartLine, SlidersHorizontal, Sparkles } from "lucide-react";
+import { Activity, ChartLine, SlidersHorizontal, Stethoscope } from "lucide-react";
 import { PulseProvider } from "@/state/pulse-context";
 import { useCapabilities, useConnection, useSettings } from "@/hooks/use-pulse";
 import { AppHeader } from "@/components/app-header";
 import { LiveTab } from "@/components/live/live-tab";
 import { ControlsTab } from "@/components/controls/controls-tab";
-import { AdvisorPanel } from "@/components/advisor/advisor-tab";
+import { DiagnosePanel } from "@/components/advisor/diagnose-tab";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
@@ -18,7 +18,7 @@ const TABS = [
   { value: "live", label: "Live", icon: Activity },
   { value: "history", label: "History", icon: ChartLine },
   { value: "controls", label: "Controls", icon: SlidersHorizontal },
-  { value: "advisor", label: "Advisor", icon: Sparkles },
+  { value: "diagnose", label: "Diagnose", icon: Stethoscope },
 ] as const;
 
 /** Waits for the target tab to render, then scrolls to and focuses an element. */
@@ -36,9 +36,10 @@ function focusLater(scrollId: string, focusId?: string) {
 type TabValue = (typeof TABS)[number]["value"];
 
 function Dashboard() {
-  // Initial tab can be deep-linked with #live / #history / #controls / #advisor.
+  // Initial tab can be deep-linked with #live / #history / #controls / #diagnose (#advisor alias).
   const [tab, setTab] = useState<TabValue>(() => {
-    const h = window.location.hash.slice(1);
+    const raw = window.location.hash.slice(1);
+    const h = raw === "advisor" ? "diagnose" : raw; // #advisor kept as an alias
     return TABS.some((t) => t.value === h) ? (h as TabValue) : "live";
   });
   const connection = useConnection();
@@ -79,15 +80,15 @@ function Dashboard() {
             <HistoryTab />
           </Suspense>
         </TabsContent>
-        <TabsContent value="advisor">
-          <AdvisorPanel
+        <TabsContent value="diagnose">
+          <DiagnosePanel
             onOpenApiKey={() => {
               setTab("controls");
               focusLater("api-key", "api-key-input");
             }}
-            onOpenModelSettings={() => {
+            onOpenAiSettings={() => {
               setTab("controls");
-              focusLater("claude-model", "claude-model");
+              focusLater("ai-settings", "ai-provider-off");
             }}
           />
         </TabsContent>

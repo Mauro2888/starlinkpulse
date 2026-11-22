@@ -22,8 +22,8 @@ Outside Tauri, `src/lib/api.ts` loads an in-browser mock backend from `src/lib/m
 | Parameter | Effect |
 |---|---|
 | `?mockProfile=mini` | Force a profile and demo mode: `mini`, `standard`, `standard_actuated`, `obstructed`, `throttled`, `offline` |
-| `?mockReport` | Pre-load a saved AI Advisor report |
-| `#live`, `#history`, `#controls`, `#advisor` | Open a specific tab |
+| `?mockReport` | Pre-load a saved Diagnose report |
+| `#live`, `#history`, `#controls`, `#diagnose` | Open a specific tab (`#advisor` still works as an alias) |
 
 The mock is dev-only code. It is a separate chunk that the desktop build never loads.
 
@@ -69,7 +69,7 @@ Then update `src/lib/api.ts` and the mock in `src/lib/mock/` so `npm run dev` ke
 
 ## Privacy
 
-Device IDs, serial numbers, MAC addresses, client names, IP addresses and GPS coordinates must never be logged, stored, sent to the AI Advisor, or committed in fixtures. Anonymize test fixtures in `src-tauri/tests/fixtures/` before committing.
+Device IDs, serial numbers, MAC addresses, client names, IP addresses and GPS coordinates must never be logged, stored, sent to an AI provider, or committed in fixtures. Anonymize test fixtures in `src-tauri/tests/fixtures/` before committing.
 
 ## Reporting a new dish model or firmware
 

@@ -26,8 +26,10 @@ All commands are async and return `Result<T, CommandError>`; arguments are camel
 | `set_api_key` | `key: string` | `()` (stored in OS keyring, never logged/returned) | 2 |
 | `has_api_key` | – | `boolean` | 2 |
 | `delete_api_key` | – | `()` | 2 |
+| `run_diagnostics` | – | `AiReport` with `source: "rules"` (built-in rule engine, offline, no key; `insufficient_data` if < 60 min) | 4.6 |
+| `list_local_models` | – | `string[]` (models on the configured local server; `ai_unavailable` if unreachable) | 4.6 |
 | `preview_ai_payload` | – | `DiagnosticSummary` (exactly what would be sent; no network call) | 4 |
-| `analyze_network_with_ai` | – | `AiReport` (errors: `no_api_key`, `ai_auth`, `ai_rate_limit`, `ai_unavailable`, `ai_refused`, `ai_invalid_response`, `offline`) | 4 |
+| `analyze_network_with_ai` | `payload: DiagnosticSummary` (exactly the previewed payload; backend re-validates shape/limits and rejects `isSimulated` mismatch with the current source) | `AiReport` (errors: `no_api_key`, `ai_auth`, `ai_rate_limit`, `ai_unavailable`, `ai_refused`, `ai_invalid_response`, `offline`) | 4 |
 | `get_last_ai_report` | – | `AiReport \| null` (persisted last report) | 4 |
 
 ## Events (backend → frontend)
@@ -52,3 +54,10 @@ All commands are async and return `Result<T, CommandError>`; arguments are camel
 - Response: check `stop_reason` first (`refusal` → `ai_refused`, `max_tokens` → `ai_invalid_response`); take the `text` content block (ignore `thinking`/`fallback` blocks), parse JSON, validate. `response.model` → `AiReport.model`.
 - Errors: 401/403 → `ai_auth`; 402 → `ai_auth` (billing message); 404 → `invalid_input` (model not available); 429 → `ai_rate_limit` (honor `retry-after`, no auto-loop); 500/529 → one retry with backoff, then `ai_unavailable`; network → `offline`. Timeout 120 s.
 - Privacy: payload contains only `DiagnosticSummary` (no IDs, MACs, names, GPS). The API key is never logged or returned.
+
+## Phase 4.6 – Rule engine + optional AI providers
+- `run_diagnostics` is the default, always-available path: deterministic Rust rules over the 24 h `DiagnosticSummary` → `AiReport{source:"rules", model:"rules-v1"}`. Persisted as last rules report.
+- `analyze_network_with_ai` uses `settings.aiProvider`: `off` → error `invalid_input` ("AI explanations are turned off"); `claude` → Anthropic as in Phase 4; `local` → local server. The payload is `DiagnosticSummary` **including `ruleFindings`**; the model is told to explain/prioritize the rule findings and only add what the data supports. Preview = exact payload.
+- Local server: `localAiKind = "ollama"` → `POST {localAiUrl}/api/chat` with `stream:false`, `format: <same JSON schema>`; `"openai_compatible"` (LM Studio, llama.cpp) → `POST {localAiUrl}/v1/chat/completions` with `response_format: {type:"json_schema", json_schema:{name, schema, strict:true}}`. No API key. Timeout 180 s. Model list: Ollama `GET /api/tags`, OpenAI-compatible `GET /v1/models`.
+- Local URL: http/https only; non-loopback hosts allowed but the UI must warn that data leaves this computer.
+- Default `aiProvider: "off"`; `localAiUrl: "http://localhost:11434"`, `localAiKind: "ollama"`, `localAiModel: ""`.
