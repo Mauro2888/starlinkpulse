@@ -290,6 +290,19 @@ pub async fn get_last_rules_report(state: State<'_, Arc<AppState>>) -> CmdResult
     Ok(last_rules_report(&state).await?)
 }
 
+/// Checks GitHub Releases for a newer version (`updaterConfigured: false` when the build
+/// has no updater key; never an error in that case).
+#[tauri::command]
+pub async fn check_for_update(app: tauri::AppHandle) -> CmdResult<crate::models::UpdateInfo> {
+    Ok(crate::updater::check(&app).await?)
+}
+
+/// Downloads, verifies and installs the update, then restarts the app.
+#[tauri::command]
+pub async fn install_update(app: tauri::AppHandle) -> CmdResult<()> {
+    Ok(crate::updater::install(&app).await?)
+}
+
 #[tauri::command]
 pub async fn get_last_ai_report(state: State<'_, Arc<AppState>>) -> CmdResult<Option<AiReport>> {
     let db = state.current_db().await;
@@ -788,5 +801,43 @@ mod tests {
         // With the mock gone the real database is read: nothing there.
         *state.client.write().await = None;
         assert_eq!(last_rules_report(&state).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn launch_at_login_is_applied_before_saving() {
+        use crate::autostart::tests::FakeLoginItem;
+        let state = AppState::in_memory(Settings::default()).unwrap();
+        let item = Arc::new(FakeLoginItem::default());
+        *state.login_item.write().await = Some(item.clone());
+        let on = Settings {
+            launch_at_login: true,
+            ..Default::default()
+        };
+        state.update_settings(on.clone()).await.unwrap();
+        assert!(*item.enabled.lock().unwrap());
+        // Unrelated changes do not touch the OS login item.
+        let other = Settings {
+            billing_cycle_day: 5,
+            ..on
+        };
+        state.update_settings(other).await.unwrap();
+        assert_eq!(*item.writes.lock().unwrap(), 1);
+
+        // OS refuses: error, setting not changed.
+        let broken = AppState::in_memory(Settings::default()).unwrap();
+        *broken.login_item.write().await = Some(Arc::new(FakeLoginItem {
+            fail: true,
+            ..Default::default()
+        }));
+        let err = broken
+            .update_settings(Settings {
+                launch_at_login: true,
+                ..Default::default()
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), "internal");
+        assert!(!broken.settings.read().await.launch_at_login);
+        assert!(!Settings::default().launch_at_login, "default off");
     }
 }

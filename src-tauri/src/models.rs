@@ -234,6 +234,8 @@ pub struct Settings {
     /// Hide to tray on window close instead of quitting (default false on Linux, where tray
     /// support depends on the desktop environment).
     pub close_to_tray: bool,
+    /// Start StarlinkPulse at login (OS login item). Default off.
+    pub launch_at_login: bool,
     pub notifications: NotificationSettings,
     /// Monthly data cap in GB for usage alerts; `None` = no cap.
     pub data_cap_gb: Option<f64>,
@@ -336,6 +338,7 @@ impl Default for Settings {
             live_poll_interval_s: 3,
             claude_model: "claude-opus-5-5".into(),
             close_to_tray: !cfg!(target_os = "linux"),
+            launch_at_login: false,
             notifications: NotificationSettings::default(),
             data_cap_gb: None,
             billing_cycle_day: 1,
@@ -444,6 +447,18 @@ pub struct AiReport {
     pub findings: Vec<AiFinding>,
     /// Exact anonymized payload that was sent.
     pub payload: DiagnosticSummary,
+}
+
+/// Result of `check_for_update`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateInfo {
+    /// False when the build has no updater public key configured.
+    pub updater_configured: bool,
+    pub available: bool,
+    pub current_version: String,
+    pub latest_version: Option<String>,
+    pub notes: Option<String>,
 }
 
 /// Error returned by every Tauri command.

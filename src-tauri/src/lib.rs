@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod autostart;
 pub mod capabilities;
 pub mod commands;
 pub mod dish;
@@ -14,6 +15,7 @@ pub mod state;
 pub mod storage;
 pub mod time;
 pub mod tray;
+pub mod updater;
 pub mod uptime;
 pub mod usage;
 pub mod write_denials;
@@ -43,11 +45,37 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![autostart::AUTOSTART_FLAG]),
+        ))
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             keyring_store::init_file_fallback(&data_dir);
             let state = Arc::new(AppState::new(&data_dir)?);
             app.manage(state.clone());
+            // Launch at login: the setting is the source of truth; sync the OS state.
+            let login_item: Arc<dyn autostart::LoginItem> =
+                Arc::new(autostart::TauriLoginItem(app.handle().clone()));
+            if let Ok(settings) = state.settings.try_read() {
+                if let Err(e) =
+                    autostart::sync_login_item(login_item.as_ref(), settings.launch_at_login)
+                {
+                    tracing::warn!(error = %e, "could not sync launch at login");
+                }
+                // Started by the login item: stay in the tray (only if the tray keeps the
+                // app reachable, i.e. close-to-tray is on).
+                if settings.close_to_tray
+                    && std::env::args().any(|a| a == autostart::AUTOSTART_FLAG)
+                    && let Some(win) = app.get_webview_window(tray::MAIN_WINDOW)
+                {
+                    let _ = win.hide();
+                }
+            }
+            if let Ok(mut slot) = state.login_item.try_write() {
+                *slot = Some(login_item);
+            }
             let sink: Arc<dyn EventSink> = Arc::new(tray::setup(app.handle())?);
             tauri::async_runtime::spawn(service::run(state, sink));
             Ok(())
@@ -85,6 +113,8 @@ pub fn run() {
             commands::preview_ai_payload,
             commands::analyze_network_with_ai,
             commands::get_last_ai_report,
+            commands::check_for_update,
+            commands::install_update,
             commands::run_diagnostics,
             commands::get_last_rules_report,
             commands::list_local_models,

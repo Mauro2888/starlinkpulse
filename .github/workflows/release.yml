@@ -4,10 +4,11 @@ name: Release
 # Linux (.AppImage + .deb) and attaches them to a DRAFT GitHub Release.
 #
 # Secrets (Settings > Secrets and variables > Actions):
-#   TAURI_SIGNING_PRIVATE_KEY           optional. Updater signing key (`npm run tauri signer generate`).
-#                                       When set, updater artifacts (.sig) and `latest.json` are
-#                                       produced; when absent they are skipped.
-#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  optional. Password of the key above.
+#   TAURI_SIGNING_PRIVATE_KEY           Updater signing key (see docs/releasing.md). Required
+#                                       together with the public key in tauri.conf.json
+#                                       (plugins.updater.pubkey); then .sig files and
+#                                       `latest.json` are published. Neither set = no updater.
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  Password of the key above.
 #   macOS signing / notarization (optional, see the commented env block below):
 #   APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY,
 #   APPLE_ID, APPLE_PASSWORD (app-specific password), APPLE_TEAM_ID.
@@ -77,18 +78,36 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      # Updater artifacts need the signing key; enable them only when the secret exists.
-      - name: Detect updater signing key
+      # Updater artifacts (.sig + latest.json) need BOTH the signing key secret and the
+      # matching public key (+ real endpoint) in src-tauri/tauri.conf.json > plugins.updater.
+      # Neither set: build without updater files. Only one of them set: fail, because the
+      # release would ship updates the app cannot verify (or an app that expects updates
+      # that are never published). See docs/releasing.md.
+      - name: Detect updater configuration
         id: updater
         shell: bash
         run: |
-          if [ -n "${TAURI_SIGNING_PRIVATE_KEY}" ]; then
+          configured=$(node -e '
+            const c = require("./src-tauri/tauri.conf.json").plugins?.updater ?? {};
+            const key = (c.pubkey ?? "").trim();
+            const eps = c.endpoints ?? [];
+            const ok = key.length >= 40 && !/REPLACE/i.test(key) && eps.length > 0 &&
+              eps.every(e => e.startsWith("https://") && !e.includes("/OWNER/"));
+            process.stdout.write(ok ? "true" : "false");
+          ')
+          if [ -n "${TAURI_SIGNING_PRIVATE_KEY}" ] && [ "$configured" = "true" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
             echo "args=--config src-tauri/tauri.updater.conf.json" >> "$GITHUB_OUTPUT"
-          else
+          elif [ -z "${TAURI_SIGNING_PRIVATE_KEY}" ] && [ "$configured" = "false" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "args=" >> "$GITHUB_OUTPUT"
-            echo "::notice::TAURI_SIGNING_PRIVATE_KEY not set: building without updater artifacts"
+            echo "::notice::Updater not configured (no signing key, no public key): building without updater artifacts"
+          elif [ -z "${TAURI_SIGNING_PRIVATE_KEY}" ]; then
+            echo "::error::plugins.updater.pubkey is set but the TAURI_SIGNING_PRIVATE_KEY secret is missing"
+            exit 1
+          else
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is set but plugins.updater (pubkey / endpoint without OWNER) is not configured in tauri.conf.json"
+            exit 1
           fi
 
       - uses: tauri-apps/tauri-action@v0

@@ -23,6 +23,9 @@ All commands are async and return `Result<T, CommandError>`; arguments are camel
 | `get_uptime_stats` | – | `UptimeStats` (24h / 7d / 30d) | 4.5 |
 | `get_data_usage` | `days: u32` | `DataUsage` (daily list, newest last) | 4.5 |
 | `send_test_notification` | – | `()` | 4.5 |
+| `check_for_update` | – | `UpdateInfo` (GitHub Releases `latest.json`; `updaterConfigured:false` if no pubkey) | 5 |
+| `install_update` | – | `()` (downloads, verifies signature, installs, restarts) | 5 |
+| `open_releases_page` | – | `()` (opens the fixed GitHub Releases URL from build config in the system browser; no arbitrary URLs) | 5 |
 | `set_api_key` | `key: string` | `()` (stored in OS keyring, never logged/returned) | 2 |
 | `has_api_key` | – | `boolean` | 2 |
 | `delete_api_key` | – | `()` | 2 |

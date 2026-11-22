@@ -62,6 +62,8 @@ pub struct AppState {
     pub sink: RwLock<Option<Arc<dyn EventSink>>>,
     /// Notification decisions (transitions, cooldown).
     pub notifier: Mutex<crate::notify::NotificationEngine>,
+    /// OS login item (launch at login); set at startup by the app.
+    pub login_item: RwLock<Option<Arc<dyn crate::autostart::LoginItem>>>,
     /// Held while an AI analysis runs (one at a time).
     pub ai_lock: tokio::sync::Mutex<()>,
     /// Signalled when settings require a reconnect.
@@ -127,6 +129,7 @@ impl AppState {
             write_denials: Mutex::new(WriteDenials::default()),
             sink: RwLock::new(None),
             ai_lock: tokio::sync::Mutex::new(()),
+            login_item: RwLock::new(None),
             notifier: Mutex::new(crate::notify::NotificationEngine::new()),
             reconnect: Notify::new(),
         })
@@ -240,6 +243,13 @@ impl AppState {
     /// Validates, persists and applies new settings; triggers a reconnect when needed.
     pub async fn update_settings(&self, new: Settings) -> Result<Settings, AppError> {
         let new = settings::validate(new)?;
+        // Apply launch-at-login first: if the OS refuses, nothing is saved.
+        let old_login = self.settings.read().await.launch_at_login;
+        if old_login != new.launch_at_login
+            && let Some(item) = self.login_item.read().await.clone()
+        {
+            crate::autostart::sync_login_item(item.as_ref(), new.launch_at_login)?;
+        }
         if let Some(path) = &self.settings_path {
             settings::save(path, &new)?;
         }

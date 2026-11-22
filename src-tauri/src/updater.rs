@@ -1,0 +1,168 @@
+//! In-app updates (Phase 5) via `tauri-plugin-updater` and GitHub Releases `latest.json`.
+//!
+//! The public key and endpoint live in `tauri.conf.json` (`plugins.updater`). Until the
+//! maintainer sets a real public key and replaces the `OWNER` placeholder in the endpoint
+//! (see docs/releasing.md), the updater counts as "not configured": `check_for_update`
+//! returns `updaterConfigured: false` and never errors.
+
+use serde_json::Value;
+use tauri::AppHandle;
+use tauri_plugin_updater::UpdaterExt;
+
+use crate::error::AppError;
+use crate::models::UpdateInfo;
+
+/// Placeholder owner in the repository URL / endpoint (TODO before the first release).
+pub const OWNER_PLACEHOLDER: &str = "/OWNER/";
+
+/// True when the updater config has a real public key and real endpoints.
+pub fn is_configured(updater_config: Option<&Value>) -> bool {
+    let Some(cfg) = updater_config else {
+        return false;
+    };
+    let pubkey = cfg
+        .get("pubkey")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    let endpoints: Vec<&str> = cfg
+        .get("endpoints")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    // A minisign public key is a long base64 string; reject empty/placeholder values.
+    let key_ok = pubkey.len() >= 40 && !pubkey.to_ascii_uppercase().contains("REPLACE");
+    let endpoints_ok = !endpoints.is_empty()
+        && endpoints
+            .iter()
+            .all(|e| e.starts_with("https://") && !e.contains(OWNER_PLACEHOLDER));
+    key_ok && endpoints_ok
+}
+
+fn configured(app: &AppHandle) -> bool {
+    is_configured(app.config().plugins.0.get("updater"))
+}
+
+fn not_configured_info(current: String) -> UpdateInfo {
+    UpdateInfo {
+        updater_configured: false,
+        available: false,
+        current_version: current,
+        latest_version: None,
+        notes: None,
+    }
+}
+
+/// Checks GitHub Releases for a newer version.
+pub async fn check(app: &AppHandle) -> Result<UpdateInfo, AppError> {
+    let current = app.package_info().version.to_string();
+    if !configured(app) {
+        return Ok(not_configured_info(current));
+    }
+    let updater = app
+        .updater()
+        .map_err(|e| AppError::Internal(format!("updater: {e}")))?;
+    match updater.check().await {
+        Ok(Some(u)) => Ok(UpdateInfo {
+            updater_configured: true,
+            available: true,
+            current_version: current,
+            latest_version: Some(u.version.clone()),
+            notes: u.body.clone().filter(|b| !b.trim().is_empty()),
+        }),
+        Ok(None) => Ok(UpdateInfo {
+            updater_configured: true,
+            available: false,
+            current_version: current.clone(),
+            latest_version: Some(current),
+            notes: None,
+        }),
+        Err(e) => {
+            tracing::info!(error = %e, "update check failed");
+            Err(AppError::Network(
+                "Could not check for updates; try again later.".into(),
+            ))
+        }
+    }
+}
+
+/// Downloads, verifies (signature) and installs the update, then restarts the app.
+pub async fn install(app: &AppHandle) -> Result<(), AppError> {
+    if !configured(app) {
+        return Err(AppError::Unsupported(
+            "updates are not configured in this build".into(),
+        ));
+    }
+    let updater = app
+        .updater()
+        .map_err(|e| AppError::Internal(format!("updater: {e}")))?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|_| AppError::Network("Could not check for updates; try again later.".into()))?
+        .ok_or_else(|| AppError::InvalidInput("no update is available".into()))?;
+    tracing::info!(version = %update.version, "installing update");
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| AppError::Internal(format!("update failed: {e}")))?;
+    app.restart();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    const KEY: &str =
+        "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFCQ0RFRjEyMzQ1Njc4OTAK";
+
+    #[test]
+    fn configuration_detection() {
+        assert!(!is_configured(None));
+        let shipped = json!({
+            "pubkey": "",
+            "endpoints": ["https://github.com/OWNER/StarlinkPulse/releases/latest/download/latest.json"]
+        });
+        assert!(
+            !is_configured(Some(&shipped)),
+            "repo default is not configured"
+        );
+        let placeholder_owner = json!({ "pubkey": KEY, "endpoints": shipped["endpoints"] });
+        assert!(!is_configured(Some(&placeholder_owner)));
+        let replace_me = json!({
+            "pubkey": "REPLACE_WITH_PUBLIC_KEY_REPLACE_WITH_PUBLIC_KEY",
+            "endpoints": ["https://github.com/acme/StarlinkPulse/releases/latest/download/latest.json"]
+        });
+        assert!(!is_configured(Some(&replace_me)));
+        let http = json!({ "pubkey": KEY, "endpoints": ["http://example.com/latest.json"] });
+        assert!(!is_configured(Some(&http)));
+        let ok = json!({
+            "pubkey": KEY,
+            "endpoints": ["https://github.com/acme/StarlinkPulse/releases/latest/download/latest.json"]
+        });
+        assert!(is_configured(Some(&ok)));
+    }
+
+    #[test]
+    fn not_configured_info_never_claims_an_update() {
+        let i = not_configured_info("0.1.0".into());
+        assert!(!i.updater_configured && !i.available);
+        assert_eq!(i.current_version, "0.1.0");
+        let v = serde_json::to_value(&i).unwrap();
+        assert_eq!(v["updaterConfigured"], false);
+        assert!(v["latestVersion"].is_null());
+    }
+
+    #[test]
+    fn shipped_tauri_conf_is_not_configured() {
+        let path = format!("{}/tauri.conf.json", env!("CARGO_MANIFEST_DIR"));
+        let conf: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let updater = conf.pointer("/plugins/updater");
+        assert!(
+            updater.is_some(),
+            "plugins.updater must exist (pubkey is required)"
+        );
+        assert!(!is_configured(updater));
+    }
+}
