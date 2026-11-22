@@ -127,7 +127,9 @@ export function ObstructionMapView({
           </span>
         </div>
         <p className="text-[0.6875rem] text-muted-foreground">
-          {earth
+          {mode === "3d"
+            ? `3D view of the sky above the dish${earth ? "" : " (dish-relative orientation)"}. Drag or use the arrow keys to rotate; the solid ring is the horizon, dashed rings are 30° and 60° up.`
+            : earth
             ? "Top-down view: north up, east right, centre straight up. Rings show elevation above the horizon."
             : "Dish-relative orientation: this firmware reports the map relative to the dish, not to compass directions. Centre is straight up; rings show elevation above the horizon."}
         </p>

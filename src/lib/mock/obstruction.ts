@@ -22,13 +22,13 @@ function hash(n: number): number {
 const BLOBS: Partial<Record<MockProfile, Blob[]>> = {
   // A tree low in the south-west plus a roof edge to the north.
   obstructed: [
-    { azimuthDeg: 225, elevationDeg: 24, azSpread: 28, elSpread: 14, depth: 0.95 },
-    { azimuthDeg: 250, elevationDeg: 38, azSpread: 10, elSpread: 8, depth: 0.7 },
-    { azimuthDeg: 5, elevationDeg: 14, azSpread: 35, elSpread: 5, depth: 0.6 },
+    { azimuthDeg: 225, elevationDeg: 36, azSpread: 30, elSpread: 12, depth: 0.95 },
+    { azimuthDeg: 255, elevationDeg: 48, azSpread: 10, elSpread: 7, depth: 0.8 },
+    { azimuthDeg: 5, elevationDeg: 31, azSpread: 30, elSpread: 4, depth: 0.7 },
   ],
-  standard: [{ azimuthDeg: 70, elevationDeg: 13, azSpread: 8, elSpread: 3, depth: 0.6 }],
-  standard_actuated: [{ azimuthDeg: 300, elevationDeg: 12, azSpread: 6, elSpread: 3, depth: 0.5 }],
-  mini: [{ azimuthDeg: 140, elevationDeg: 16, azSpread: 12, elSpread: 4, depth: 0.55 }],
+  standard: [{ azimuthDeg: 70, elevationDeg: 32, azSpread: 7, elSpread: 3, depth: 0.8 }],
+  standard_actuated: [{ azimuthDeg: 300, elevationDeg: 31, azSpread: 6, elSpread: 3, depth: 0.8 }],
+  mini: [{ azimuthDeg: 140, elevationDeg: 33, azSpread: 12, elSpread: 4, depth: 0.8 }],
   throttled: [],
 };
 
@@ -88,14 +88,18 @@ export function mockObstructionMap(profile: MockProfile): ObstructionMap {
       if (!p) continue;
       const i = cellIndex(r, c, SIZE);
       if (!mask[i]) continue;
-      let v = 0.82 + hash(i + 11) * 0.18;
+      // Real maps concentrate data at 30-70° elevation; keep only a little outside that band.
+      if ((p.elevationDeg < 27 || p.elevationDeg > 73) && hash(i + 5) > 0.12) continue;
+      let o = 0;
       for (const b of blobs) {
         const da = azimuthDelta(b.azimuthDeg, p.azimuthDeg) / b.azSpread;
         const de = (p.elevationDeg - b.elevationDeg) / b.elSpread;
         const d = da * da + de * de;
-        if (d < 1.6) v -= b.depth * Math.exp(-d * 1.4) * (0.85 + hash(i + 29) * 0.3);
+        if (d < 1.6) o = Math.max(o, b.depth * Math.exp(-d * 1.4));
       }
-      snr[i] = Math.max(0, Math.min(1, v));
+      // Real SNR is almost always exactly 0 (blocked) or 1 (clear), with few values in between.
+      const h = hash(i + 29);
+      snr[i] = o > 0.4 ? (h < 0.88 ? 0 : 0.45) : h < 0.97 ? 1 : 0.8;
     }
   }
   return { rows: SIZE, cols: SIZE, minElevationDeg: 10, maxThetaDeg: 80, referenceFrame: "FRAME_EARTH", snr };

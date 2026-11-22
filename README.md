@@ -6,7 +6,7 @@ StarlinkPulse is a small desktop app for macOS, Windows and Linux. It monitors y
 |---|---|
 | ![Live tab in the tray popup](docs/screenshots/live-tray.png) | ![Live tab in a desktop window](docs/screenshots/live-desktop.png) |
 | ![Obstruction map and alignment helper](docs/screenshots/sky-tray.png) | ![History tab with uptime, data usage and charts](docs/screenshots/history-desktop.png) |
-| ![Diagnose report from the built-in rules](docs/screenshots/diagnose-tray.png) | |
+| ![Diagnose report from the built-in rules](docs/screenshots/diagnose-tray.png) | ![Rotatable 3D sky dome](docs/screenshots/sky-3d.png) |
 
 <sub>Screenshots taken in demo mode with simulated data.</sub>
 
@@ -14,7 +14,7 @@ StarlinkPulse is a small desktop app for macOS, Windows and Linux. It monitors y
 
 - **Live**: download/upload, latency, packet loss, signal quality, obstruction %, uptime and power draw (if your dish reports it), with 5-minute sparklines.
 - **Alerts in plain words**: thermal throttling, motors, water detected, and more. Plan speed limits (`POLICY_LIMIT`) are explained as "speed limited by plan".
-- **Sky view**: a polar obstruction map with a text summary, e.g. "mostly towards the south-west, about 25° above the horizon".
+- **Sky view**: the obstruction map as a flat polar plot or a rotatable 3D dome, with a text summary, e.g. "mostly towards the south-west, about 37° above the horizon".
 - **Alignment helper** for dishes without motors: "Rotate 11° clockwise, seen from above", "Tilt 2° up", with a tolerance indicator.
 - **History**: 1 h / 6 h / 24 h / 48 h charts for latency (average and p95), packet loss, throughput and power, with outage markers and an outage log.
 - **Uptime** over 24 hours / 7 days / 30 days and **estimated data usage** per billing cycle, with an optional data cap.

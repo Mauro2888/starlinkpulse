@@ -140,6 +140,8 @@ export interface Settings {
   claudeModel: string;
   /** Hide to tray on window close instead of quitting (default false on Linux). */
   closeToTray: boolean;
+  /** Start StarlinkPulse when the user logs in. Default false. */
+  launchAtLogin: boolean;
   notifications: NotificationSettings;
   /** Monthly data cap in GB for usage alerts; null = none. */
   dataCapGb: number | null;
@@ -269,4 +271,15 @@ export interface DataUsage {
   capGb: number | null;
   /** Estimate disclaimer is required in UI: derived from throughput samples, not billing data. */
   isEstimate: true;
+}
+
+// ---- Phase 5: updates ----
+
+export interface UpdateInfo {
+  /** False when the build has no updater public key configured. */
+  updaterConfigured: boolean;
+  available: boolean;
+  currentVersion: string;
+  latestVersion: string | null;
+  notes: string | null;
 }

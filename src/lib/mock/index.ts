@@ -33,6 +33,7 @@ export const DEFAULT_SETTINGS: Settings = {
   livePollIntervalS: 3,
   claudeModel: "claude-opus-5-5",
   closeToTray: true,
+  launchAtLogin: false,
   notifications: {
     enabled: true,
     outage: true,
