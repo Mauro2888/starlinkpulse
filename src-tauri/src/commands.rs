@@ -276,6 +276,18 @@ pub async fn list_local_models(state: State<'_, Arc<AppState>>) -> CmdResult<Vec
     Ok(crate::ai::list_local_models(&state).await?)
 }
 
+/// Last report of the built-in rule engine (`run_diagnostics`), if any.
+#[tauri::command]
+pub async fn get_last_rules_report(state: State<'_, Arc<AppState>>) -> CmdResult<Option<AiReport>> {
+    let db = state.current_db().await;
+    Ok(
+        tokio::task::spawn_blocking(move || lock_db(&db).last_rules_report())
+            .await
+            .map_err(|e| AppError::Internal(e.to_string()))?
+            .map_err(AppError::from)?,
+    )
+}
+
 #[tauri::command]
 pub async fn get_last_ai_report(state: State<'_, Arc<AppState>>) -> CmdResult<Option<AiReport>> {
     let db = state.current_db().await;

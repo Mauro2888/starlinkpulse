@@ -86,6 +86,7 @@ pub fn run() {
             commands::analyze_network_with_ai,
             commands::get_last_ai_report,
             commands::run_diagnostics,
+            commands::get_last_rules_report,
             commands::list_local_models,
             commands::get_uptime_stats,
             commands::get_data_usage,
