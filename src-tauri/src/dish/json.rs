@@ -179,6 +179,7 @@ pub fn parse_status(s: &Value, now_ms: i64) -> DishStatus {
         desired_elevation_deg: align.and_then(|a| num(a.get("desiredBoresightElevationDeg"))),
         tilt_angle_deg: align.and_then(|a| num(a.get("tiltAngleDeg"))),
         uncertainty_deg: align.and_then(|a| num(a.get("attitudeUncertaintyDeg"))),
+        estimation_state: align.and_then(|a| enum_name(a.get("attitudeEstimationState"))),
     };
     let has_alignment_stats = alignment.azimuth_deg.is_some()
         || alignment.desired_azimuth_deg.is_some()
@@ -455,6 +456,10 @@ mod tests {
         assert!(s.alerts.is_empty());
         assert_eq!(s.is_heating, Some(false));
         assert!(s.alignment.desired_azimuth_deg.is_some());
+        assert_eq!(
+            s.alignment.estimation_state.as_deref(),
+            Some("FILTER_CONVERGED")
+        );
         assert_eq!(st.actuators, ActuatorSupport::No);
         assert!(st.has_alignment_stats);
         assert!(st.snow_melt_configurable);

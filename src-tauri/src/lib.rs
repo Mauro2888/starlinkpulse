@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod alignment;
 pub mod autostart;
 pub mod capabilities;
 pub mod commands;
@@ -115,6 +116,7 @@ pub fn run() {
             commands::preview_ai_payload,
             commands::analyze_network_with_ai,
             commands::get_last_ai_report,
+            commands::set_alignment_mode,
             commands::check_for_update,
             commands::install_update,
             commands::open_releases_page,

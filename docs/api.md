@@ -26,6 +26,7 @@ All commands are async and return `Result<T, CommandError>`; arguments are camel
 | `check_for_update` | – | `UpdateInfo` (GitHub Releases `latest.json`; `updaterConfigured:false` if no pubkey) | 5 |
 | `install_update` | – | `()` (downloads, verifies signature, installs, restarts) | 5 |
 | `open_releases_page` | – | `()` (opens the fixed GitHub Releases URL from build config in the system browser; no arbitrary URLs) | 5 |
+| `set_alignment_mode` | `enabled: bool` | `()` (fast read-only polling of `get_status` every 1 s while enabled; auto-off after 10 min; emits `telemetry` + `alignment-mode` events) | 4.8 |
 | `set_api_key` | `key: string` | `()` (stored in OS keyring, never logged/returned) | 2 |
 | `has_api_key` | – | `boolean` | 2 |
 | `delete_api_key` | – | `()` | 2 |
@@ -43,6 +44,7 @@ All commands are async and return `Result<T, CommandError>`; arguments are camel
 | `telemetry` | `TelemetrySnapshot` | every `livePollIntervalS` while connected or mock |
 | `connection-status` | `ConnectionStatus` | on every state change |
 | `capabilities` | `DishCapabilities` | after (re)connect |
+| `alignment-mode` | `{ enabled: boolean, remainingS: number }` | when alignment mode starts/stops (incl. auto-off) |
 
 ## Rules
 - Write commands are rejected with `read_only` when `settings.readOnly` is true (default) and with `unsupported` when capabilities say so.

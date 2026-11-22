@@ -63,6 +63,17 @@ pub struct AlignmentStats {
     pub desired_elevation_deg: Option<f64>,
     pub tilt_angle_deg: Option<f64>,
     pub uncertainty_deg: Option<f64>,
+    /// Attitude estimator state, e.g. "FILTER_CONVERGED".
+    pub estimation_state: Option<String>,
+}
+
+/// Payload of the `alignment-mode` event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AlignmentModeEvent {
+    pub enabled: bool,
+    /// Seconds until automatic stop.
+    pub remaining_s: u32,
 }
 
 /// Live snapshot from `get_status`, polled every few seconds and not persisted.

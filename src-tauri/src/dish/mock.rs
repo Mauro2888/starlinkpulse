@@ -138,6 +138,61 @@ fn splitmix64(mut x: u64) -> u64 {
     x ^ (x >> 31)
 }
 
+/// Recommended orientation of the simulated manual dish.
+const SIM_DESIRED_AZ: f64 = 20.0;
+const SIM_DESIRED_EL: f64 = 66.0;
+
+fn ease(x: f64) -> f64 {
+    let x = x.clamp(0.0, 1.0);
+    1.0 - (1.0 - x) * (1.0 - x)
+}
+
+/// Orientation of a manual dish. Before guided alignment it is off by ~11° in azimuth (as on
+/// the recon Mini). After `start` the simulated user rotates it (5-50 s), then tilts it
+/// (50-80 s); the attitude estimate is noisy while it moves, with periodic uncertainty
+/// spikes ("FILTER_CONVERGING"), and settles converged afterwards.
+pub(crate) fn simulated_alignment(now_ms: i64, start_ms: Option<i64>) -> AlignmentStats {
+    let now_s = now_ms / 1000;
+    let noise = |salt| 0.05 * gauss(now_s, salt);
+    let (az, el, moving, t) = match start_ms {
+        None => (9.1, 66.1, false, 0.0),
+        Some(start) => {
+            let t = (now_ms - start).max(0) as f64 / 1000.0;
+            let az = 9.1 + (SIM_DESIRED_AZ - 0.15 - 9.1) * ease((t - 5.0) / 45.0);
+            // Unlocking the mount let it tilt down; the user fixes that in step 2.
+            let el = if t < 50.0 {
+                64.6
+            } else {
+                64.6 + (SIM_DESIRED_EL + 0.05 - 64.6) * ease((t - 50.0) / 30.0)
+            };
+            (az, el, (5.0..85.0).contains(&t), t)
+        }
+    };
+    let spike = moving && (t % 12.0) < 2.0;
+    AlignmentStats {
+        azimuth_deg: Some(az + noise(80)),
+        elevation_deg: Some(el + noise(81)),
+        desired_azimuth_deg: Some(SIM_DESIRED_AZ),
+        desired_elevation_deg: Some(SIM_DESIRED_EL),
+        tilt_angle_deg: Some(90.0 - el + 0.9),
+        uncertainty_deg: Some(if spike {
+            3.5
+        } else if moving {
+            1.2
+        } else {
+            0.5
+        }),
+        estimation_state: Some(
+            if spike {
+                "FILTER_CONVERGING"
+            } else {
+                "FILTER_CONVERGED"
+            }
+            .into(),
+        ),
+    }
+}
+
 /// Deterministic uniform value in `[0, 1)`.
 fn unit(x: i64, salt: u64) -> f64 {
     let h = splitmix64((x as u64) ^ splitmix64(salt));
@@ -156,6 +211,8 @@ struct State {
     boot_s: i64,
     stowed: bool,
     snow_melt: SnowMeltMode,
+    /// When guided alignment started (the simulated user starts moving the dish).
+    align_start_ms: Option<i64>,
 }
 
 /// Mock dish and router.
@@ -182,6 +239,7 @@ impl MockClient {
                 boot_s,
                 stowed: false,
                 snow_melt: SnowMeltMode::Auto,
+                align_start_ms: None,
             }),
             writes: Mutex::new(Vec::new()),
             deny_writes: AtomicBool::new(false),
@@ -442,23 +500,31 @@ impl StarlinkClient for MockClient {
         let p = &self.p;
         let now = now_ms();
         let now_s = now / 1000;
-        let (boot_s, stowed) = self
+        let (boot_s, stowed, align_start) = self
             .state
             .lock()
-            .map(|s| (s.boot_s, s.stowed))
+            .map(|s| (s.boot_s, s.stowed, s.align_start_ms))
             .map_err(|_| ClientError::Rpc("mock state poisoned".into()))?;
         let s = self.sample_at(now_s - 1, boot_s);
         let outage = self.outage_at(now_s - 1, boot_s);
         let connected = !stowed && outage.is_none();
         let actuated = p.actuators == ActuatorSupport::Yes;
-        let alignment = AlignmentStats {
-            azimuth_deg: Some(if actuated { 0.4 } else { 9.1 } + 0.05 * gauss(now_s, 80)),
-            elevation_deg: Some(if actuated { 65.9 } else { 66.1 } + 0.05 * gauss(now_s, 81)),
-            desired_azimuth_deg: Some(if actuated { 0.0 } else { 20.0 }),
-            desired_elevation_deg: Some(66.0),
-            tilt_angle_deg: Some(if stowed { 90.0 } else { 25.0 }),
-            uncertainty_deg: Some(0.5),
+        let mut alignment = if actuated {
+            AlignmentStats {
+                azimuth_deg: Some(0.4 + 0.05 * gauss(now_s, 80)),
+                elevation_deg: Some(65.9 + 0.05 * gauss(now_s, 81)),
+                desired_azimuth_deg: Some(0.0),
+                desired_elevation_deg: Some(66.0),
+                tilt_angle_deg: Some(25.0),
+                uncertainty_deg: Some(0.5),
+                estimation_state: Some("FILTER_CONVERGED".into()),
+            }
+        } else {
+            simulated_alignment(now, align_start)
         };
+        if stowed {
+            alignment.tilt_angle_deg = Some(90.0);
+        }
         let mut alerts = Vec::new();
         if p.throttled && unit(now_s / 600, 90) < 0.3 {
             alerts.push("thermalThrottle".to_string());
@@ -599,6 +665,17 @@ impl StarlinkClient for MockClient {
             reference_frame: Some("FRAME_EARTH".into()),
             snr,
         })
+    }
+
+    fn alignment_started(&self) {
+        if self.p.actuators != ActuatorSupport::Yes
+            && let Ok(mut st) = self.state.lock()
+        {
+            // Restart the simulation only if the dish was not aligned yet.
+            if st.align_start_ms.is_none() {
+                st.align_start_ms = Some(now_ms());
+            }
+        }
     }
 
     async fn get_snow_melt_mode(&self) -> Result<Option<SnowMeltMode>, ClientError> {
@@ -797,5 +874,54 @@ mod tests {
         assert_eq!(samples.len(), 7200);
         assert!(!outages.is_empty());
         assert!(outages.windows(2).all(|w| w[0].start_ms <= w[1].start_ms));
+    }
+
+    #[test]
+    fn simulated_alignment_converges() {
+        let start = 1_000_000;
+        let err = |t_s: i64| {
+            let a = simulated_alignment(start + t_s * 1000, Some(start));
+            (
+                a.desired_azimuth_deg.unwrap() - a.azimuth_deg.unwrap(),
+                a.desired_elevation_deg.unwrap() - a.elevation_deg.unwrap(),
+                a.uncertainty_deg.unwrap(),
+                a.estimation_state.unwrap(),
+            )
+        };
+        let (az0, el0, _, _) = err(0);
+        assert!(az0 > 10.0 && el0 > 1.0, "starts misaligned: {az0} {el0}");
+        let (az30, _, _, _) = err(30);
+        assert!(az30 > 0.5 && az30 < az0, "rotating: {az30}");
+        let (az51, el51, _, _) = err(51);
+        assert!(
+            az51.abs() < 2.0 && el51 > 1.0,
+            "step 2: azimuth done, tilt pending"
+        );
+        let (az90, el90, u90, st90) = err(90);
+        assert!(
+            az90.abs() < 0.5 && el90.abs() < 0.3,
+            "converged: {az90} {el90}"
+        );
+        assert_eq!((u90, st90.as_str()), (0.5, "FILTER_CONVERGED"));
+        // Uncertainty spikes while moving.
+        assert!((5..85).any(|t| err(t).3 == "FILTER_CONVERGING" && err(t).2 > 3.0));
+        // Without guided alignment: the old fixed offset.
+        let idle = simulated_alignment(start, None);
+        assert!((idle.desired_azimuth_deg.unwrap() - idle.azimuth_deg.unwrap() - 10.9).abs() < 0.3);
+    }
+
+    #[tokio::test]
+    async fn alignment_hook_only_for_manual_dishes() {
+        let m = MockClient::new(MockProfile::Mini);
+        m.alignment_started();
+        assert!(m.state.lock().unwrap().align_start_ms.is_some());
+        let a = MockClient::new(MockProfile::StandardActuated);
+        a.alignment_started();
+        assert!(a.state.lock().unwrap().align_start_ms.is_none());
+        let st = a.get_status().await.unwrap();
+        assert_eq!(
+            st.snapshot.alignment.estimation_state.as_deref(),
+            Some("FILTER_CONVERGED")
+        );
     }
 }

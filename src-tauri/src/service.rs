@@ -220,6 +220,8 @@ async fn detect_capabilities(
 async fn session(state: &Arc<AppState>, settings: &Settings, sink: &Arc<dyn EventSink>) {
     // Drop the previous client and its capabilities before anything else (no write can be
     // authorized by stale capabilities of another dish or of the mock).
+    // A reconnect or real/mock switch ends alignment mode.
+    crate::alignment::stop(state).await;
     let session_id = state.begin_session().await;
     // Another dish address: its uptime/bootcount must not be compared with the old dish.
     let address_changed = {
@@ -505,12 +507,21 @@ async fn live_poll(
     period: Duration,
     auto_fallback: bool,
 ) {
-    let mut live = interval(period);
-    live.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut failures = 0u32;
     let mut last_throttle_minute = i64::MIN;
+    let mut last_alignment_event = now_ms();
+    let mut first = true;
     loop {
-        live.tick().await;
+        // Alignment mode switches to 1 s polling; a mode change wakes the wait at once.
+        let aligning = crate::alignment::tick(&state, &mut last_alignment_event).await;
+        if !first {
+            let wait = crate::alignment::poll_period(period, aligning);
+            tokio::select! {
+                _ = tokio::time::sleep(wait) => {}
+                _ = state.alignment_changed.notified() => {}
+            }
+        }
+        first = false;
         match client.get_status().await {
             Ok(st) => {
                 failures = 0;
@@ -598,11 +609,15 @@ mod tests {
         status: Mutex<Vec<ConnectionStatus>>,
         caps: Mutex<Vec<DishCapabilities>>,
         notes: Mutex<Vec<crate::notify::Notification>>,
+        align: Mutex<Vec<crate::models::AlignmentModeEvent>>,
     }
 
     impl EventSink for Recorder {
         fn notify(&self, n: &crate::notify::Notification) {
             self.notes.lock().unwrap().push(n.clone());
+        }
+        fn alignment_mode(&self, e: &crate::models::AlignmentModeEvent) {
+            self.align.lock().unwrap().push(*e);
         }
         fn telemetry(&self, s: &TelemetrySnapshot) {
             self.telemetry.lock().unwrap().push(s.clone());
@@ -790,5 +805,103 @@ mod tests {
         restore_data_cap_level(&state).await;
         check_data_cap(&state, &sink, false).await;
         assert_eq!(rec.notes.lock().unwrap().len(), 1);
+    }
+
+    async fn start_mock(
+        profile: MockProfile,
+        poll_s: u32,
+    ) -> (Arc<AppState>, Arc<Recorder>, tokio::task::JoinHandle<()>) {
+        let state = Arc::new(
+            AppState::in_memory(Settings {
+                mock_mode: MockMode::On,
+                mock_profile: profile,
+                live_poll_interval_s: poll_s,
+                ..Default::default()
+            })
+            .unwrap(),
+        );
+        let rec = Arc::new(Recorder::default());
+        let sink: Arc<dyn EventSink> = rec.clone();
+        let task = tokio::spawn(run(state.clone(), sink));
+        wait_for(|| !rec.telemetry.lock().unwrap().is_empty()).await;
+        (state, rec, task)
+    }
+
+    #[tokio::test]
+    async fn alignment_mode_gating() {
+        // Motorized dish: refused.
+        let (state, rec, task) = start_mock(MockProfile::StandardActuated, 5).await;
+        let e = crate::alignment::set_mode(&state, true).await.unwrap_err();
+        assert_eq!(e.kind(), "invalid_input");
+        assert!(rec.align.lock().unwrap().is_empty());
+        task.abort();
+        // Not connected: offline.
+        let idle = AppState::in_memory(Settings::default()).unwrap();
+        assert_eq!(
+            crate::alignment::set_mode(&idle, true)
+                .await
+                .unwrap_err()
+                .kind(),
+            "offline"
+        );
+    }
+
+    #[tokio::test]
+    async fn alignment_mode_polls_every_second_and_stops() {
+        let (state, rec, task) = start_mock(MockProfile::Mini, 5).await;
+        // Normal 5 s interval: no second telemetry soon.
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        let before = rec.telemetry.lock().unwrap().len();
+        assert_eq!(before, 1);
+
+        let ev = crate::alignment::set_mode(&state, true).await.unwrap();
+        assert_eq!((ev.enabled, ev.remaining_s), (true, 600));
+        assert_eq!(rec.align.lock().unwrap().last().copied(), Some(ev));
+        // The wait is interrupted immediately, then 1 s polling.
+        wait_for(|| rec.telemetry.lock().unwrap().len() >= before + 3).await;
+        let n = rec.telemetry.lock().unwrap().len();
+        // The mock dish is being "moved": orientation data with estimator state.
+        let last = rec.telemetry.lock().unwrap().last().cloned().unwrap();
+        assert!(last.alignment.estimation_state.is_some());
+
+        // Manual stop: event and back to the slow interval.
+        crate::alignment::set_mode(&state, false).await.unwrap();
+        assert_eq!(
+            rec.align.lock().unwrap().last().copied(),
+            Some(crate::models::AlignmentModeEvent::default())
+        );
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        assert!(rec.telemetry.lock().unwrap().len() <= n + 2, "slow again");
+
+        // Auto-off: force the deadline into the past.
+        crate::alignment::set_mode(&state, true).await.unwrap();
+        let sid = state.session.load(std::sync::atomic::Ordering::SeqCst);
+        *state.alignment.lock().unwrap() = Some(crate::alignment::AlignmentSession {
+            session_id: sid,
+            until_ms: now_ms() - 1,
+        });
+        state.alignment_changed.notify_one();
+        wait_for(|| state.alignment.lock().unwrap().is_none()).await;
+        assert!(!rec.align.lock().unwrap().last().unwrap().enabled);
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn reconnect_ends_alignment_mode() {
+        let (state, rec, task) = start_mock(MockProfile::Mini, 5).await;
+        crate::alignment::set_mode(&state, true).await.unwrap();
+        let s = state.settings.read().await.clone();
+        state
+            .update_settings(Settings {
+                mock_profile: MockProfile::Standard,
+                ..s
+            })
+            .await
+            .unwrap();
+        wait_for(|| state.alignment.lock().unwrap().is_none()).await;
+        let events = rec.align.lock().unwrap().clone();
+        assert!(events.first().unwrap().enabled);
+        assert!(!events.last().unwrap().enabled);
+        task.abort();
     }
 }

@@ -35,6 +35,8 @@ export interface AlignmentStats {
   desiredElevationDeg: number | null;
   tiltAngleDeg: number | null;
   uncertaintyDeg: number | null;
+  /** Attitude estimator state, e.g. "FILTER_CONVERGED". */
+  estimationState: string | null;
 }
 
 export interface TelemetrySnapshot {
@@ -282,4 +284,12 @@ export interface UpdateInfo {
   currentVersion: string;
   latestVersion: string | null;
   notes: string | null;
+}
+
+// ---- Phase 4.8: guided alignment ----
+
+export interface AlignmentModeEvent {
+  enabled: boolean;
+  /** Seconds until automatic stop. */
+  remainingS: number;
 }

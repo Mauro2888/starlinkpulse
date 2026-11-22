@@ -309,6 +309,14 @@ pub async fn install_update(app: tauri::AppHandle) -> CmdResult<()> {
     Ok(crate::updater::install(&app).await?)
 }
 
+/// Guided alignment mode: 1 s read-only polling, auto-off after 10 min (dishes without
+/// motors only).
+#[tauri::command]
+pub async fn set_alignment_mode(state: State<'_, Arc<AppState>>, enabled: bool) -> CmdResult<()> {
+    crate::alignment::set_mode(&state, enabled).await?;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn get_last_ai_report(state: State<'_, Arc<AppState>>) -> CmdResult<Option<AiReport>> {
     let db = state.current_db().await;

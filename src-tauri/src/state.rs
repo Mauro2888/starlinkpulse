@@ -21,6 +21,8 @@ pub trait EventSink: Send + Sync {
     fn capabilities(&self, caps: &DishCapabilities);
     /// Shows a desktop notification (already filtered by the engine).
     fn notify(&self, _n: &crate::notify::Notification) {}
+    /// `alignment-mode` event.
+    fn alignment_mode(&self, _e: &crate::models::AlignmentModeEvent) {}
 }
 
 /// Sink that discards everything.
@@ -66,6 +68,10 @@ pub struct AppState {
     pub notifier: Mutex<crate::notify::NotificationEngine>,
     /// OS login item (launch at login); set at startup by the app.
     pub login_item: RwLock<Option<Arc<dyn crate::autostart::LoginItem>>>,
+    /// Guided alignment mode (fast read-only polling), bound to a connection session.
+    pub alignment: Mutex<Option<crate::alignment::AlignmentSession>>,
+    /// Wakes the live poll when alignment mode changes (interval switch).
+    pub alignment_changed: Notify,
     /// Held while an AI analysis runs (one at a time).
     pub ai_lock: tokio::sync::Mutex<()>,
     /// Signalled when settings require a reconnect.
@@ -131,6 +137,8 @@ impl AppState {
             write_denials: Mutex::new(WriteDenials::default()),
             sink: RwLock::new(None),
             ai_lock: tokio::sync::Mutex::new(()),
+            alignment: Mutex::new(None),
+            alignment_changed: Notify::new(),
             login_item: RwLock::new(None),
             notifier: Mutex::new(crate::notify::NotificationEngine::new()),
             notified_dish_address: Mutex::new(None),

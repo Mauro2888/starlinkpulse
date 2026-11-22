@@ -136,6 +136,10 @@ pub trait StarlinkClient: Send + Sync {
     /// Snow-melt mode from `dish_get_config` (read-only). `Ok(None)` = unknown value.
     async fn get_snow_melt_mode(&self) -> Result<Option<SnowMeltMode>, ClientError>;
 
+    /// Alignment mode started (read-only hint; the mock uses it to simulate the dish being
+    /// moved and converging). Default: nothing.
+    fn alignment_started(&self) {}
+
     /// Sends a write request. Callers must go through `commands::perform_write`, which
     /// enforces read-only mode and capabilities.
     async fn write(&self, action: WriteAction) -> Result<(), ClientError>;

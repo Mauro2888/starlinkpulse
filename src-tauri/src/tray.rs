@@ -13,6 +13,7 @@ pub const MAIN_WINDOW: &str = "main";
 pub const EVENT_TELEMETRY: &str = "telemetry";
 pub const EVENT_CONNECTION_STATUS: &str = "connection-status";
 pub const EVENT_CAPABILITIES: &str = "capabilities";
+pub const EVENT_ALIGNMENT_MODE: &str = "alignment-mode";
 
 /// Shows the main window if hidden, hides it otherwise.
 pub fn toggle_main_window(app: &AppHandle) {
@@ -103,6 +104,12 @@ impl EventSink for TraySink {
     fn capabilities(&self, caps: &DishCapabilities) {
         if let Err(e) = self.app.emit(EVENT_CAPABILITIES, caps) {
             tracing::debug!(error = %e, "emit capabilities failed");
+        }
+    }
+
+    fn alignment_mode(&self, e: &crate::models::AlignmentModeEvent) {
+        if let Err(err) = self.app.emit(EVENT_ALIGNMENT_MODE, e) {
+            tracing::debug!(error = %err, "emit alignment-mode failed");
         }
     }
 
