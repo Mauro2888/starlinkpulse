@@ -95,3 +95,56 @@ export interface DiagnosticSummary {
   alignmentDeltaElevationDeg: number | null;
   weakestWifiSignalDbm: number | null;
 }
+
+export type ConnectionState = "connecting" | "connected" | "offline" | "mock";
+
+export interface ConnectionStatus {
+  state: ConnectionState;
+  dishAddress: string;
+  routerAvailable: boolean;
+  lastError: string | null;
+  lastSuccessMs: number | null;
+}
+
+export type MockMode = "auto" | "on" | "off";
+export type MockProfile =
+  | "mini"
+  | "standard"
+  | "standard_actuated"
+  | "obstructed"
+  | "throttled"
+  | "offline";
+export type SnowMeltMode = "auto" | "always_on" | "always_off";
+
+export interface Settings {
+  dishAddress: string;
+  routerAddress: string;
+  readOnly: boolean;
+  mockMode: MockMode;
+  mockProfile: MockProfile;
+  livePollIntervalS: number;
+  claudeModel: string;
+}
+
+export interface ObstructionMap {
+  rows: number;
+  cols: number;
+  minElevationDeg: number | null;
+  maxThetaDeg: number | null;
+  referenceFrame: string | null;
+  snr: (number | null)[];
+}
+
+export type CommandErrorKind =
+  | "offline"
+  | "unsupported"
+  | "read_only"
+  | "timeout"
+  | "invalid_input"
+  | "keyring"
+  | "internal";
+
+export interface CommandError {
+  kind: CommandErrorKind;
+  message: string;
+}

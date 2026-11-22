@@ -148,6 +148,111 @@ pub struct DiagnosticSummary {
     pub weakest_wifi_signal_dbm: Option<f64>,
 }
 
+/// Connection state of the dish client.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ConnectionState {
+    #[default]
+    Connecting,
+    Connected,
+    Offline,
+    Mock,
+}
+
+/// Emitted on the `connection-status` event and returned by `get_connection_status`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionStatus {
+    pub state: ConnectionState,
+    pub dish_address: String,
+    pub router_available: bool,
+    /// Human-readable last error (no sensitive data).
+    pub last_error: Option<String>,
+    /// Unix epoch milliseconds of last successful dish response.
+    pub last_success_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum MockMode {
+    /// Use the real dish, fall back to mock when unreachable.
+    #[default]
+    Auto,
+    On,
+    Off,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum MockProfile {
+    #[default]
+    Mini,
+    Standard,
+    StandardActuated,
+    Obstructed,
+    Throttled,
+    Offline,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SnowMeltMode {
+    #[default]
+    Auto,
+    AlwaysOn,
+    AlwaysOff,
+}
+
+/// User settings persisted in `app_data_dir/settings.json` (never contains the API key).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Settings {
+    pub dish_address: String,
+    pub router_address: String,
+    /// When true, all write commands are rejected. Default ON.
+    pub read_only: bool,
+    pub mock_mode: MockMode,
+    pub mock_profile: MockProfile,
+    pub live_poll_interval_s: u32,
+    pub claude_model: String,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            dish_address: "192.168.100.1:9200".into(),
+            router_address: "192.168.1.1:9000".into(),
+            read_only: true,
+            mock_mode: MockMode::Auto,
+            mock_profile: MockProfile::Mini,
+            live_poll_interval_s: 3,
+            claude_model: "claude-sonnet-5-5".into(),
+        }
+    }
+}
+
+/// Obstruction map from `dish_get_obstruction_map`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ObstructionMap {
+    pub rows: u32,
+    pub cols: u32,
+    pub min_elevation_deg: Option<f64>,
+    pub max_theta_deg: Option<f64>,
+    pub reference_frame: Option<String>,
+    /// Row-major values 0.0..=1.0; `None` where the dish reports no data (-1).
+    pub snr: Vec<Option<f32>>,
+}
+
+/// Error returned by every Tauri command.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandError {
+    /// "offline" | "unsupported" | "read_only" | "timeout" | "invalid_input" | "keyring" | "internal"
+    pub kind: String,
+    pub message: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
