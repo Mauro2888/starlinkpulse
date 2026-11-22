@@ -1,0 +1,622 @@
+//! Tauri commands (contract: `docs/api.md`). Every command returns
+//! `Result<T, CommandError>`.
+
+use std::sync::Arc;
+
+use tauri::State;
+
+use crate::dish::WriteAction;
+use crate::error::{AppError, ClientError};
+use crate::keyring_store;
+use crate::models::{
+    AiReport, CommandError, ConnectionStatus, DiagnosticSummary, DishCapabilities, DishEvent,
+    HistoryPoint, ObstructionMap, Settings, SnowMeltMode, TelemetrySnapshot,
+};
+use crate::state::{AppState, lock_db};
+use crate::storage::MAX_RANGE_MINUTES;
+use crate::time::now_ms;
+
+type CmdResult<T> = Result<T, CommandError>;
+
+/// Rejects write actions in read-only mode or when the dish lacks the capability.
+pub fn check_write_allowed(
+    settings: &Settings,
+    caps: &DishCapabilities,
+    action: WriteAction,
+) -> Result<(), AppError> {
+    if settings.read_only {
+        return Err(AppError::ReadOnly);
+    }
+    let (supported, what) = match action {
+        WriteAction::Reboot => (caps.can_reboot, "reboot"),
+        WriteAction::Stow | WriteAction::Unstow => (caps.can_stow, "stow/unstow"),
+        WriteAction::SetSnowMelt(_) => (caps.can_set_snow_melt, "snow melt configuration"),
+    };
+    if !supported {
+        return Err(AppError::Unsupported(format!(
+            "{what} is not available on this dish"
+        )));
+    }
+    Ok(())
+}
+
+/// Single entry point for every write action (ADR-006).
+pub async fn perform_write(state: &AppState, action: WriteAction) -> Result<(), AppError> {
+    let settings = state.settings.read().await.clone();
+    if settings.read_only {
+        return Err(AppError::ReadOnly);
+    }
+    let (caps, client) = match state.session_caps_and_client().await {
+        Some(v) => v,
+        None if state.client.read().await.is_none() => {
+            return Err(ClientError::Unreachable("not connected".into()).into());
+        }
+        None => {
+            return Err(AppError::Unsupported(
+                "dish capabilities are still being detected; try again in a moment".into(),
+            ));
+        }
+    };
+    check_write_allowed(&settings, &caps, action)?;
+    match client.write(action).await {
+        Ok(()) => {
+            if let WriteAction::SetSnowMelt(mode) = action {
+                // Re-read the dish config; fall back to the requested mode.
+                let current = client
+                    .get_snow_melt_mode()
+                    .await
+                    .ok()
+                    .flatten()
+                    .unwrap_or(mode);
+                state.update_snow_melt_mode(current).await;
+            }
+            Ok(())
+        }
+        // The dish drops the connection while rebooting: the request was delivered.
+        Err(e) if action == WriteAction::Reboot && e.is_connectivity() => {
+            tracing::info!("reboot sent; dish is restarting");
+            Ok(())
+        }
+        Err(ClientError::PermissionDenied) => {
+            // Firmware blocks local writes: remember it, never retry automatically.
+            state.record_write_denial(action).await;
+            Err(AppError::WriteDenied)
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+fn validate_range(range_minutes: u32) -> Result<u32, AppError> {
+    if range_minutes == 0 {
+        return Err(AppError::InvalidInput("rangeMinutes must be > 0".into()));
+    }
+    Ok(range_minutes.min(MAX_RANGE_MINUTES))
+}
+
+pub async fn history_points(
+    state: &AppState,
+    range_minutes: u32,
+) -> Result<Vec<HistoryPoint>, AppError> {
+    let range = validate_range(range_minutes)?;
+    let db = state.current_db().await;
+    tokio::task::spawn_blocking(move || lock_db(&db).history(range, now_ms()))
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?
+        .map_err(AppError::from)
+}
+
+pub async fn history_events(
+    state: &AppState,
+    range_minutes: u32,
+) -> Result<Vec<DishEvent>, AppError> {
+    let range = validate_range(range_minutes)?;
+    let db = state.current_db().await;
+    // Outages only (BOOTING = reboot); other event-log entries stay internal.
+    tokio::task::spawn_blocking(move || lock_db(&db).outages(range, now_ms()))
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?
+        .map_err(AppError::from)
+}
+
+async fn blocking<T: Send + 'static>(
+    f: impl FnOnce() -> Result<T, AppError> + Send + 'static,
+) -> CmdResult<T> {
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?
+        .map_err(CommandError::from)
+}
+
+#[tauri::command]
+pub async fn get_connection_status(state: State<'_, Arc<AppState>>) -> CmdResult<ConnectionStatus> {
+    Ok(state.status.read().await.clone())
+}
+
+#[tauri::command]
+pub async fn get_capabilities(state: State<'_, Arc<AppState>>) -> CmdResult<DishCapabilities> {
+    Ok(state.capabilities.read().await.clone())
+}
+
+#[tauri::command]
+pub async fn get_live_snapshot(state: State<'_, Arc<AppState>>) -> CmdResult<TelemetrySnapshot> {
+    state
+        .snapshot
+        .read()
+        .await
+        .clone()
+        .ok_or_else(|| ClientError::Unreachable("no telemetry available yet".into()).into())
+}
+
+#[tauri::command]
+pub async fn get_history(
+    state: State<'_, Arc<AppState>>,
+    range_minutes: u32,
+) -> CmdResult<Vec<HistoryPoint>> {
+    Ok(history_points(&state, range_minutes).await?)
+}
+
+#[tauri::command]
+pub async fn get_events(
+    state: State<'_, Arc<AppState>>,
+    range_minutes: u32,
+) -> CmdResult<Vec<DishEvent>> {
+    Ok(history_events(&state, range_minutes).await?)
+}
+
+/// Asks for a destination with the native save dialog and writes the CSV.
+/// Returns the saved path, or `None` when the user cancels.
+#[tauri::command]
+pub async fn export_history_csv(
+    app: tauri::AppHandle,
+    state: State<'_, Arc<AppState>>,
+    range_minutes: u32,
+) -> CmdResult<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let points = history_points(&state, range_minutes).await?;
+    let csv = crate::export::history_csv(&points);
+    let name = crate::export::default_file_name(now_ms());
+    let picked = tokio::task::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .add_filter("CSV", &["csv"])
+            .set_file_name(name)
+            .blocking_save_file()
+    })
+    .await
+    .map_err(|e| AppError::Internal(e.to_string()))?;
+    let Some(file) = picked else {
+        return Ok(None);
+    };
+    let path = file
+        .into_path()
+        .map_err(|_| AppError::InvalidInput("unsupported save location".into()))?;
+    let write_path = path.clone();
+    tokio::task::spawn_blocking(move || std::fs::write(&write_path, csv))
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?
+        .map_err(AppError::from)?;
+    tracing::info!(rows = points.len(), "history exported to CSV");
+    Ok(Some(path.display().to_string()))
+}
+
+#[tauri::command]
+pub async fn get_obstruction_map(state: State<'_, Arc<AppState>>) -> CmdResult<ObstructionMap> {
+    if !state.capabilities.read().await.has_obstruction_map {
+        return Err(
+            AppError::Unsupported("obstruction map is not available on this dish".into()).into(),
+        );
+    }
+    let client = state
+        .client
+        .read()
+        .await
+        .clone()
+        .ok_or_else(|| ClientError::Unreachable("not connected".into()))?;
+    Ok(client.get_obstruction_map().await?)
+}
+
+#[tauri::command]
+pub async fn get_settings(state: State<'_, Arc<AppState>>) -> CmdResult<Settings> {
+    Ok(state.settings.read().await.clone())
+}
+
+#[tauri::command]
+pub async fn update_settings(
+    state: State<'_, Arc<AppState>>,
+    settings: Settings,
+) -> CmdResult<Settings> {
+    Ok(state.update_settings(settings).await?)
+}
+
+#[tauri::command]
+pub async fn reboot_dish(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
+    Ok(perform_write(&state, WriteAction::Reboot).await?)
+}
+
+#[tauri::command]
+pub async fn stow_dish(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
+    Ok(perform_write(&state, WriteAction::Stow).await?)
+}
+
+#[tauri::command]
+pub async fn unstow_dish(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
+    Ok(perform_write(&state, WriteAction::Unstow).await?)
+}
+
+#[tauri::command]
+pub async fn set_snow_melt(state: State<'_, Arc<AppState>>, mode: SnowMeltMode) -> CmdResult<()> {
+    Ok(perform_write(&state, WriteAction::SetSnowMelt(mode)).await?)
+}
+
+#[tauri::command]
+pub async fn preview_ai_payload(state: State<'_, Arc<AppState>>) -> CmdResult<DiagnosticSummary> {
+    Ok(crate::ai::current_summary(&state).await?)
+}
+
+#[tauri::command]
+pub async fn analyze_network_with_ai(state: State<'_, Arc<AppState>>) -> CmdResult<AiReport> {
+    let client = crate::ai::anthropic::AnthropicClient::new()?;
+    Ok(crate::ai::analyze(&state, &client, None).await?)
+}
+
+#[tauri::command]
+pub async fn get_last_ai_report(state: State<'_, Arc<AppState>>) -> CmdResult<Option<AiReport>> {
+    let db = state.current_db().await;
+    Ok(
+        tokio::task::spawn_blocking(move || lock_db(&db).last_ai_report())
+            .await
+            .map_err(|e| AppError::Internal(e.to_string()))?
+            .map_err(AppError::from)?,
+    )
+}
+
+#[tauri::command]
+pub async fn set_api_key(key: String) -> CmdResult<()> {
+    blocking(move || keyring_store::set_api_key(&key)).await
+}
+
+#[tauri::command]
+pub async fn has_api_key() -> CmdResult<bool> {
+    blocking(keyring_store::has_api_key).await
+}
+
+#[tauri::command]
+pub async fn delete_api_key() -> CmdResult<()> {
+    blocking(keyring_store::delete_api_key).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::capabilities::{CapabilityInputs, Probe, detect};
+    use crate::dish::StarlinkClient;
+    use crate::dish::mock::MockClient;
+    use crate::models::{MockProfile, Settings};
+
+    async fn state_with_mock(
+        profile: MockProfile,
+        read_only: bool,
+    ) -> (Arc<AppState>, Arc<MockClient>) {
+        let settings = Settings {
+            read_only,
+            ..Default::default()
+        };
+        let state = Arc::new(AppState::in_memory(settings).unwrap());
+        let mock = Arc::new(MockClient::new(profile));
+        let caps = detect(&CapabilityInputs {
+            status: mock.get_status().await.ok(),
+            request_names: mock.request_names(),
+            history_has_power: Some(true),
+            obstruction_map: Probe::Supported,
+            router_available: mock.has_router(),
+            is_mock: true,
+        });
+        *state.capabilities.write().await = caps;
+        *state.client.write().await = Some(mock.clone());
+        (state, mock)
+    }
+
+    #[tokio::test]
+    async fn read_only_rejects_every_write() {
+        let (state, mock) = state_with_mock(MockProfile::StandardActuated, true).await;
+        for action in [
+            WriteAction::Reboot,
+            WriteAction::Stow,
+            WriteAction::Unstow,
+            WriteAction::SetSnowMelt(SnowMeltMode::AlwaysOn),
+        ] {
+            let err = perform_write(&state, action).await.unwrap_err();
+            assert_eq!(err.kind(), "read_only", "{action:?}");
+        }
+        assert!(mock.writes().is_empty(), "nothing reached the client");
+    }
+
+    #[tokio::test]
+    async fn unsupported_write_is_rejected_before_client() {
+        let (state, mock) = state_with_mock(MockProfile::Mini, false).await;
+        let err = perform_write(&state, WriteAction::Stow).await.unwrap_err();
+        assert_eq!(err.kind(), "unsupported");
+        assert!(mock.writes().is_empty());
+    }
+
+    #[tokio::test]
+    async fn allowed_writes_reach_mock() {
+        let (state, mock) = state_with_mock(MockProfile::StandardActuated, false).await;
+        perform_write(&state, WriteAction::Stow).await.unwrap();
+        perform_write(&state, WriteAction::Unstow).await.unwrap();
+        perform_write(&state, WriteAction::SetSnowMelt(SnowMeltMode::AlwaysOn))
+            .await
+            .unwrap();
+        perform_write(&state, WriteAction::Reboot).await.unwrap();
+        assert_eq!(
+            mock.writes(),
+            vec![
+                WriteAction::Stow,
+                WriteAction::Unstow,
+                WriteAction::SetSnowMelt(SnowMeltMode::AlwaysOn),
+                WriteAction::Reboot
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn write_without_client_is_offline() {
+        let state = AppState::in_memory(Settings {
+            read_only: false,
+            ..Default::default()
+        })
+        .unwrap();
+        state.capabilities.write().await.can_reboot = true;
+        let err = perform_write(&state, WriteAction::Reboot)
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), "offline");
+    }
+
+    #[tokio::test]
+    async fn history_queries_use_mock_db_and_validate_range() {
+        let (state, mock) = state_with_mock(MockProfile::Mini, true).await;
+        let client: Arc<dyn StarlinkClient> = mock;
+        crate::service::ingest_history(&state, &client).await;
+        let pts = history_points(&state, 60).await.unwrap();
+        assert!(!pts.is_empty());
+        assert!(pts.windows(2).all(|w| w[0].minute_ms < w[1].minute_ms));
+        // Real DB untouched by mock data.
+        assert!(lock_db(&state.db).is_empty().unwrap());
+        assert_eq!(
+            history_points(&state, 0).await.unwrap_err().kind(),
+            "invalid_input"
+        );
+        assert!(history_events(&state, 100_000).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn settings_update_validates_and_signals_reconnect() {
+        let state = AppState::in_memory(Settings::default()).unwrap();
+        let bad = Settings {
+            live_poll_interval_s: 0,
+            ..Default::default()
+        };
+        assert_eq!(
+            state.update_settings(bad).await.unwrap_err().kind(),
+            "invalid_input"
+        );
+        let s = Settings {
+            mock_mode: crate::models::MockMode::On,
+            ..Default::default()
+        };
+        state.update_settings(s.clone()).await.unwrap();
+        assert_eq!(*state.settings.read().await, s);
+        // A permit is stored by notify_one.
+        tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            state.reconnect.notified(),
+        )
+        .await
+        .expect("reconnect notified");
+    }
+
+    #[derive(Default)]
+    struct CapsRecorder(std::sync::Mutex<Vec<DishCapabilities>>);
+
+    impl crate::state::EventSink for CapsRecorder {
+        fn telemetry(&self, _: &TelemetrySnapshot) {}
+        fn connection_status(&self, _: &ConnectionStatus) {}
+        fn capabilities(&self, c: &DishCapabilities) {
+            self.0.lock().unwrap().push(c.clone());
+        }
+    }
+
+    #[tokio::test]
+    async fn permission_denied_write_downgrades_and_persists() {
+        let dir = std::env::temp_dir().join(format!(
+            "starlinkpulse-deny-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        crate::settings::save(
+            &dir.join(crate::settings::SETTINGS_FILE),
+            &Settings {
+                read_only: false,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let state = AppState::new(&dir).unwrap();
+        let rec = Arc::new(CapsRecorder::default());
+        *state.sink.write().await = Some(rec.clone());
+        let mock = Arc::new(MockClient::new(MockProfile::StandardActuated));
+        mock.set_deny_writes(true);
+        let fresh_caps = detect(&CapabilityInputs {
+            status: mock.get_status().await.ok(),
+            request_names: mock.request_names(),
+            is_mock: true,
+            ..Default::default()
+        });
+        assert!(fresh_caps.can_set_snow_melt && fresh_caps.can_reboot && fresh_caps.can_stow);
+        *state.capabilities.write().await = fresh_caps.clone();
+        *state.client.write().await = Some(mock.clone());
+
+        let err: CommandError = perform_write(&state, WriteAction::SetSnowMelt(SnowMeltMode::Auto))
+            .await
+            .unwrap_err()
+            .into();
+        assert_eq!(err.kind, "unsupported");
+        assert_eq!(
+            err.message,
+            "This dish firmware does not allow this change from the local network. Use the Starlink app."
+        );
+        assert!(mock.writes().is_empty(), "nothing applied");
+        // Live capabilities downgraded and emitted; others untouched.
+        let caps = state.capabilities.read().await.clone();
+        assert!(!caps.can_set_snow_melt);
+        assert!(caps.can_reboot && caps.can_stow);
+        assert_eq!(rec.0.lock().unwrap().last(), Some(&caps));
+        // A second attempt is rejected up front, without reaching the dish.
+        let again = perform_write(&state, WriteAction::SetSnowMelt(SnowMeltMode::Auto))
+            .await
+            .unwrap_err();
+        assert!(matches!(again, AppError::Unsupported(_)));
+
+        // Unimplemented keeps the generic unsupported message.
+        mock.set_deny_writes(false);
+        let mini = Arc::new(MockClient::new(MockProfile::Mini));
+        *state.client.write().await = Some(mini);
+        let err = perform_write(&state, WriteAction::Stow).await.unwrap_err();
+        assert_eq!(err.kind(), "unsupported");
+        assert!(!err.to_string().contains("Starlink app"));
+        assert!(
+            state.capabilities.read().await.can_stow,
+            "Unimplemented is not persisted"
+        );
+
+        // Persisted: a new state (next app start) applies the downgrade on connect.
+        drop(state);
+        let restarted = AppState::new(&dir).unwrap();
+        let mut caps2 = fresh_caps.clone();
+        restarted.apply_write_denials(&mut caps2);
+        assert!(!caps2.can_set_snow_melt);
+        assert!(caps2.can_reboot && caps2.can_stow);
+        // Another firmware version is not affected.
+        let mut caps3 = DishCapabilities {
+            software_version: Some("2027.01.01.other".into()),
+            ..fresh_caps
+        };
+        restarted.apply_write_denials(&mut caps3);
+        assert!(caps3.can_set_snow_melt);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn stale_capabilities_never_authorize_writes_after_reconnect() {
+        // Session A: actuated mock, stow allowed.
+        let (state, mock_a) = state_with_mock(MockProfile::StandardActuated, false).await;
+        perform_write(&state, WriteAction::Stow).await.unwrap();
+        assert_eq!(mock_a.writes().len(), 1);
+
+        // Reconnect starts: client dropped and capabilities reset before the swap.
+        let sid = state.begin_session().await;
+        assert!(!state.capabilities.read().await.can_stow);
+        assert_eq!(
+            perform_write(&state, WriteAction::Stow)
+                .await
+                .unwrap_err()
+                .kind(),
+            "offline"
+        );
+
+        // New client installed, capabilities not detected yet -> rejected.
+        let mock_b = Arc::new(MockClient::new(MockProfile::StandardActuated));
+        *state.client.write().await = Some(mock_b.clone());
+        // Even if someone restores the old capabilities without a session id.
+        state.capabilities.write().await.can_stow = true;
+        let err = perform_write(&state, WriteAction::Stow).await.unwrap_err();
+        assert_eq!(err.kind(), "unsupported");
+        assert!(mock_b.writes().is_empty());
+
+        // Capabilities from an older session are ignored.
+        let caps = detect(&CapabilityInputs {
+            status: mock_b.get_status().await.ok(),
+            request_names: mock_b.request_names(),
+            is_mock: true,
+            ..Default::default()
+        });
+        assert!(!state.set_capabilities(sid - 1, caps.clone()).await);
+        assert!(perform_write(&state, WriteAction::Stow).await.is_err());
+
+        // Detection for the current session enables writes again.
+        assert!(state.set_capabilities(sid, caps.clone()).await);
+        perform_write(&state, WriteAction::Stow).await.unwrap();
+        assert_eq!(mock_b.writes(), vec![WriteAction::Stow]);
+
+        // Capabilities of a mock never authorize a real (non-mock) client and vice versa.
+        let real_like = DishCapabilities {
+            is_mock: false,
+            ..caps
+        };
+        assert!(state.set_capabilities(sid, real_like).await);
+        let err = perform_write(&state, WriteAction::Stow).await.unwrap_err();
+        assert_eq!(err.kind(), "unsupported");
+        assert_eq!(mock_b.writes().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn reboot_connection_loss_counts_as_sent() {
+        let (state, mock) = state_with_mock(MockProfile::Mini, false).await;
+        mock.set_write_error(Some(ClientError::Timeout));
+        perform_write(&state, WriteAction::Reboot).await.unwrap();
+        mock.set_write_error(Some(ClientError::Unreachable("reset".into())));
+        perform_write(&state, WriteAction::Reboot).await.unwrap();
+        // Other writes still report the timeout.
+        mock.set_write_error(Some(ClientError::Timeout));
+        let err = perform_write(&state, WriteAction::SetSnowMelt(SnowMeltMode::AlwaysOn))
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), "timeout");
+        mock.set_write_error(Some(ClientError::Rpc("Internal".into())));
+        assert!(perform_write(&state, WriteAction::Reboot).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn snow_melt_mode_updated_after_set() {
+        let (state, mock) = state_with_mock(MockProfile::Mini, false).await;
+        let rec = Arc::new(CapsRecorder::default());
+        *state.sink.write().await = Some(rec.clone());
+        perform_write(&state, WriteAction::SetSnowMelt(SnowMeltMode::AlwaysOff))
+            .await
+            .unwrap();
+        assert_eq!(mock.snow_melt(), SnowMeltMode::AlwaysOff);
+        let caps = state.capabilities.read().await.clone();
+        assert_eq!(caps.snow_melt_mode, Some(SnowMeltMode::AlwaysOff));
+        assert_eq!(rec.0.lock().unwrap().last(), Some(&caps));
+    }
+
+    #[tokio::test]
+    async fn get_events_returns_outages_only() {
+        let state = AppState::in_memory(Settings::default()).unwrap();
+        let now = now_ms();
+        let mut h = crate::dish::DishHistory {
+            current: 10,
+            latency_ms: vec![Some(20.0); 900],
+            ..Default::default()
+        };
+        h.outages = vec![DishEvent {
+            start_ms: now - 60_000,
+            duration_ms: 1_000,
+            cause: "BOOTING".into(),
+            severity: None,
+        }];
+        h.other_events = vec![DishEvent {
+            start_ms: now - 30_000,
+            duration_ms: 0,
+            cause: "SOFTWARE_UPDATE".into(),
+            severity: Some("ADVISORY".into()),
+        }];
+        lock_db(&state.db).ingest_history(&h, now).unwrap();
+        let ev = history_events(&state, 60).await.unwrap();
+        assert_eq!(ev.len(), 1);
+        assert_eq!(ev[0].cause, "BOOTING");
+    }
+}

@@ -16,6 +16,8 @@ export interface DishCapabilities {
   hasAlignmentStats: boolean;
   hasRouter: boolean;
   isMock: boolean;
+  /** Current snow-melt mode read from dish config, if known. */
+  snowMeltMode: SnowMeltMode | null;
 }
 
 export interface ObstructionStats {
@@ -40,6 +42,8 @@ export interface TelemetrySnapshot {
   uptimeS: number | null;
   downlinkBps: number | null;
   uplinkBps: number | null;
+  /** Latest dish power draw in watts (from history samples), if available. */
+  powerW: number | null;
   popPingLatencyMs: number | null;
   popPingDropRate: number | null;
   snrAboveNoiseFloor: boolean | null;
@@ -79,7 +83,11 @@ export interface DishEvent {
 }
 
 export interface DiagnosticSummary {
+  /** Language the advisor should answer in (e.g. "en"). */
+  language: string;
   windowHours: number;
+  /** Minutes of history available inside the window. */
+  historyMinutes: number;
   hardwareVersion: string | null;
   softwareVersion: string | null;
   latencyAvgMs: number | null;
@@ -124,6 +132,8 @@ export interface Settings {
   mockProfile: MockProfile;
   livePollIntervalS: number;
   claudeModel: string;
+  /** Hide to tray on window close instead of quitting (default false on Linux). */
+  closeToTray: boolean;
 }
 
 export interface ObstructionMap {
@@ -142,9 +152,47 @@ export type CommandErrorKind =
   | "timeout"
   | "invalid_input"
   | "keyring"
-  | "internal";
+  | "internal"
+  | "no_api_key"
+  | "ai_auth"
+  | "ai_rate_limit"
+  | "ai_unavailable"
+  | "ai_refused"
+  | "ai_invalid_response"
+  | "insufficient_data";
 
 export interface CommandError {
   kind: CommandErrorKind;
   message: string;
+}
+
+// ---- Phase 4: AI Advisor ----
+
+export type AiFindingCategory =
+  | "wifi"
+  | "obstruction"
+  | "starlink_network"
+  | "hardware"
+  | "power"
+  | "configuration";
+export type AiSeverity = "info" | "warning" | "critical";
+export type AiOverallHealth = "good" | "fair" | "poor";
+
+export interface AiFinding {
+  category: AiFindingCategory;
+  severity: AiSeverity;
+  title: string;
+  detail: string;
+  actions: string[];
+}
+
+export interface AiReport {
+  generatedAtMs: number;
+  /** Model that produced the report (may differ from the requested one after a fallback). */
+  model: string;
+  overallHealth: AiOverallHealth;
+  headline: string;
+  findings: AiFinding[];
+  /** Exact anonymized payload that was sent. */
+  payload: DiagnosticSummary;
 }

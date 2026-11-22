@@ -1,0 +1,206 @@
+//! User settings persisted as JSON in `app_data_dir/settings.json` (never the API key).
+
+use std::path::Path;
+
+use crate::error::AppError;
+use crate::models::Settings;
+
+pub const SETTINGS_FILE: &str = "settings.json";
+pub const MIN_POLL_S: u32 = 1;
+pub const MAX_POLL_S: u32 = 60;
+
+/// Loads settings; a missing or corrupt file yields defaults (read-only ON).
+pub fn load(path: &Path) -> Settings {
+    match std::fs::read_to_string(path) {
+        Ok(text) => match serde_json::from_str::<Settings>(&text) {
+            Ok(s) => validate(s).unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "invalid settings on disk, using defaults");
+                Settings::default()
+            }),
+            Err(e) => {
+                tracing::warn!(error = %e, "unreadable settings, using defaults");
+                Settings::default()
+            }
+        },
+        Err(_) => Settings::default(),
+    }
+}
+
+/// Atomically writes settings.
+pub fn save(path: &Path, settings: &Settings) -> Result<(), AppError> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let text =
+        serde_json::to_string_pretty(settings).map_err(|e| AppError::Internal(e.to_string()))?;
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, text)?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+/// Validates a `host:port` address (IPv4, hostname or `[IPv6]`).
+fn validate_address(field: &str, value: &str) -> Result<String, AppError> {
+    let v = value.trim();
+    let invalid = || AppError::InvalidInput(format!("{field} must be host:port"));
+    if v.is_empty() || v.contains("://") || v.contains('/') || v.chars().any(char::is_whitespace) {
+        return Err(invalid());
+    }
+    let (host, port) = v.rsplit_once(':').ok_or_else(invalid)?;
+    if host.is_empty() || host == "[]" {
+        return Err(invalid());
+    }
+    if host.contains(':') && !(host.starts_with('[') && host.ends_with(']')) {
+        return Err(invalid());
+    }
+    match port.parse::<u16>() {
+        Ok(p) if p > 0 => Ok(v.to_string()),
+        _ => Err(invalid()),
+    }
+}
+
+/// Validates and normalizes settings.
+pub fn validate(mut s: Settings) -> Result<Settings, AppError> {
+    s.dish_address = validate_address("dishAddress", &s.dish_address)?;
+    // Empty router address = router features disabled.
+    s.router_address = if s.router_address.trim().is_empty() {
+        String::new()
+    } else {
+        validate_address("routerAddress", &s.router_address)?
+    };
+    if !(MIN_POLL_S..=MAX_POLL_S).contains(&s.live_poll_interval_s) {
+        return Err(AppError::InvalidInput(format!(
+            "livePollIntervalS must be between {MIN_POLL_S} and {MAX_POLL_S}"
+        )));
+    }
+    s.claude_model = s.claude_model.trim().to_string();
+    if s.claude_model.is_empty()
+        || s.claude_model.len() > 100
+        || !s
+            .claude_model
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_' | ':' | '@'))
+    {
+        return Err(AppError::InvalidInput(
+            "claudeModel is not a valid model id".into(),
+        ));
+    }
+    Ok(s)
+}
+
+/// True when the dish/router connection must be re-established after a settings change.
+pub fn needs_reconnect(old: &Settings, new: &Settings) -> bool {
+    old.dish_address != new.dish_address
+        || old.router_address != new.router_address
+        || old.mock_mode != new.mock_mode
+        || old.mock_profile != new.mock_profile
+        || old.live_poll_interval_s != new.live_poll_interval_s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{MockMode, MockProfile};
+
+    #[test]
+    fn defaults_are_read_only_and_valid() {
+        let s = Settings::default();
+        assert!(s.read_only);
+        assert_eq!(validate(s.clone()).unwrap(), s);
+    }
+
+    #[test]
+    fn rejects_bad_values() {
+        let bad = |f: fn(&mut Settings)| {
+            let mut s = Settings::default();
+            f(&mut s);
+            validate(s).is_err()
+        };
+        assert!(bad(|s| s.dish_address = "".into()));
+        assert!(bad(|s| s.dish_address = "http://192.168.100.1:9200".into()));
+        assert!(bad(|s| s.dish_address = "192.168.100.1".into()));
+        assert!(bad(|s| s.dish_address = "192.168.100.1:0".into()));
+        assert!(bad(|s| s.dish_address = "192.168.100.1:99999".into()));
+        assert!(bad(|s| s.router_address = "::1:9000".into()));
+        assert!(bad(|s| s.live_poll_interval_s = 0));
+        assert!(bad(|s| s.live_poll_interval_s = 61));
+        assert!(bad(|s| s.claude_model = " ".into()));
+        assert!(bad(|s| s.claude_model = "a b".into()));
+    }
+
+    #[test]
+    fn accepts_and_trims() {
+        let s = Settings {
+            dish_address: " dish.local:9200 ".into(),
+            router_address: "[fe80::1]:9000".into(),
+            ..Default::default()
+        };
+        let v = validate(s).unwrap();
+        assert_eq!(v.dish_address, "dish.local:9200");
+    }
+
+    #[test]
+    fn empty_router_address_disables_router() {
+        let s = Settings {
+            router_address: "   ".into(),
+            ..Default::default()
+        };
+        assert_eq!(validate(s).unwrap().router_address, "");
+        let bad_dish = Settings {
+            dish_address: "".into(),
+            ..Default::default()
+        };
+        assert!(validate(bad_dish).is_err(), "dish address stays mandatory");
+    }
+
+    #[test]
+    fn close_to_tray_default_depends_on_platform() {
+        assert_eq!(
+            Settings::default().close_to_tray,
+            !cfg!(target_os = "linux")
+        );
+        // Older settings files without the field get the platform default.
+        let s: Settings = serde_json::from_str(r#"{"readOnly": true}"#).unwrap();
+        assert_eq!(s.close_to_tray, Settings::default().close_to_tray);
+    }
+
+    #[test]
+    fn reconnect_detection() {
+        let a = Settings::default();
+        let mut b = a.clone();
+        b.read_only = false;
+        b.claude_model = "other".into();
+        assert!(!needs_reconnect(&a, &b));
+        b.mock_mode = MockMode::On;
+        assert!(needs_reconnect(&a, &b));
+        let mut c = a.clone();
+        c.mock_profile = MockProfile::Obstructed;
+        assert!(needs_reconnect(&a, &c));
+    }
+
+    #[test]
+    fn save_load_roundtrip_and_corrupt_file() {
+        let dir = std::env::temp_dir().join(format!(
+            "starlinkpulse-settings-test-{}-{}",
+            std::process::id(),
+            crate::time::now_ms()
+        ));
+        let path = dir.join(SETTINGS_FILE);
+        assert_eq!(load(&path), Settings::default());
+        let s = Settings {
+            read_only: false,
+            mock_mode: MockMode::On,
+            ..Default::default()
+        };
+        save(&path, &s).unwrap();
+        assert_eq!(load(&path), s);
+        std::fs::write(&path, "{not json").unwrap();
+        assert_eq!(load(&path), Settings::default());
+        // Partial file: missing fields take defaults.
+        std::fs::write(&path, r#"{"mockMode":"on"}"#).unwrap();
+        let partial = load(&path);
+        assert_eq!(partial.mock_mode, MockMode::On);
+        assert!(partial.read_only);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}

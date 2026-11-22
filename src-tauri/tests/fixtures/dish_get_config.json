@@ -1,0 +1,23 @@
+{
+ "apiVersion": "44",
+ "dishGetConfig": {
+  "dishConfig": {
+   "swupdateRebootHour": 3,
+   "lossOfExtPowerAutoOffTimeoutSeconds": 300,
+   "noBurstAutoOffTimeoutSeconds": 300,
+   "applySnowMeltMode": true,
+   "applyLocationRequestMode": true,
+   "applyLevelDishMode": true,
+   "applyPowerSaveStartMinutes": true,
+   "applyPowerSaveDurationMinutes": true,
+   "applyPowerSaveMode": true,
+   "applySwupdateThreeDayDeferralEnabled": true,
+   "applyAssetClass": true,
+   "applySwupdateRebootHour": true,
+   "applyLossOfExtPowerAutoOffEnabled": true,
+   "applyNoBurstAutoOffEnabled": true,
+   "applyLossOfExtPowerAutoOffTimeoutSeconds": true,
+   "applyNoBurstAutoOffTimeoutSeconds": true
+  }
+ }
+}

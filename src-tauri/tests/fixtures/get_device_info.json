@@ -1,0 +1,10 @@
+{
+ "apiVersion": "44",
+ "getDeviceInfo": {
+  "deviceInfo": {
+   "hardwareVersion": "mini1_pez_proto1",
+   "softwareVersion": "2026.10.17.cr89322.2.58167.1",
+   "bootcount": 11
+  }
+ }
+}

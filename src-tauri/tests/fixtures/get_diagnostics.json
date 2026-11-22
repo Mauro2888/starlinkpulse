@@ -1,0 +1,16 @@
+{
+ "apiVersion": "44",
+ "dishGetDiagnostics": {
+  "hardwareVersion": "mini1_pez_proto1",
+  "softwareVersion": "2026.10.17.cr89322.2.58167.1",
+  "alerts": {},
+  "disablementCode": "OKAY",
+  "hardwareSelfTest": "PASSED",
+  "alignmentStats": {
+   "boresightAzimuthDeg": 9.1169,
+   "boresightElevationDeg": 66.1275,
+   "desiredBoresightAzimuthDeg": 20.0059,
+   "desiredBoresightElevationDeg": 66.0237
+  }
+ }
+}

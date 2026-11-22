@@ -34,6 +34,8 @@ pub struct DishCapabilities {
     pub has_router: bool,
     /// True when data comes from the built-in mock client instead of a real dish.
     pub is_mock: bool,
+    /// Current snow-melt mode read from the dish config, if known.
+    pub snow_melt_mode: Option<SnowMeltMode>,
 }
 
 /// Obstruction summary from `get_status.obstructionStats`.
@@ -72,6 +74,9 @@ pub struct TelemetrySnapshot {
     pub uptime_s: Option<u64>,
     pub downlink_bps: Option<f64>,
     pub uplink_bps: Option<f64>,
+    /// Latest power draw in watts (`powerIn`, fallback `powerConsumptionW` from history);
+    /// `None` when the dish does not report power.
+    pub power_w: Option<f64>,
     pub pop_ping_latency_ms: Option<f64>,
     /// 0.0..=1.0 (absent from the dish when 0).
     pub pop_ping_drop_rate: Option<f64>,
@@ -128,7 +133,11 @@ pub struct DishEvent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct DiagnosticSummary {
+    /// Language the advisor should answer in (e.g. "en").
+    pub language: String,
     pub window_hours: u32,
+    /// Minutes of history available inside the window.
+    pub history_minutes: u32,
     pub hardware_version: Option<String>,
     pub software_version: Option<String>,
     pub latency_avg_ms: Option<f64>,
@@ -215,6 +224,9 @@ pub struct Settings {
     pub mock_profile: MockProfile,
     pub live_poll_interval_s: u32,
     pub claude_model: String,
+    /// Hide to tray on window close instead of quitting (default false on Linux, where tray
+    /// support depends on the desktop environment).
+    pub close_to_tray: bool,
 }
 
 impl Default for Settings {
@@ -226,7 +238,8 @@ impl Default for Settings {
             mock_mode: MockMode::Auto,
             mock_profile: MockProfile::Mini,
             live_poll_interval_s: 3,
-            claude_model: "claude-sonnet-5-5".into(),
+            claude_model: "claude-opus-5-5".into(),
+            close_to_tray: !cfg!(target_os = "linux"),
         }
     }
 }
@@ -244,11 +257,66 @@ pub struct ObstructionMap {
     pub snr: Vec<Option<f32>>,
 }
 
+/// Category of an AI advisor finding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AiFindingCategory {
+    Wifi,
+    Obstruction,
+    StarlinkNetwork,
+    Hardware,
+    Power,
+    Configuration,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AiSeverity {
+    Info,
+    Warning,
+    Critical,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AiOverallHealth {
+    Good,
+    Fair,
+    Poor,
+}
+
+/// One recommendation from the AI advisor.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiFinding {
+    pub category: AiFindingCategory,
+    pub severity: AiSeverity,
+    pub title: String,
+    pub detail: String,
+    pub actions: Vec<String>,
+}
+
+/// Result of `analyze_network_with_ai`, persisted as the last report.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiReport {
+    pub generated_at_ms: i64,
+    /// Model that produced the report (may differ from the requested one after a fallback).
+    pub model: String,
+    pub overall_health: AiOverallHealth,
+    pub headline: String,
+    pub findings: Vec<AiFinding>,
+    /// Exact anonymized payload that was sent.
+    pub payload: DiagnosticSummary,
+}
+
 /// Error returned by every Tauri command.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandError {
-    /// "offline" | "unsupported" | "read_only" | "timeout" | "invalid_input" | "keyring" | "internal"
+    /// "offline" | "unsupported" | "read_only" | "timeout" | "invalid_input" | "keyring" |
+    /// "internal" | "no_api_key" | "ai_auth" | "ai_rate_limit" | "ai_unavailable" |
+    /// "ai_refused" | "ai_invalid_response" | "insufficient_data"
     pub kind: String,
     pub message: String,
 }
@@ -262,11 +330,19 @@ mod tests {
         let s = TelemetrySnapshot::default();
         let v = serde_json::to_value(&s).unwrap();
         assert!(v.get("popPingLatencyMs").unwrap().is_null());
-        assert!(v.get("obstruction").unwrap().get("fractionObstructed").is_some());
+        assert!(
+            v.get("obstruction")
+                .unwrap()
+                .get("fractionObstructed")
+                .is_some()
+        );
     }
 
     #[test]
     fn actuator_support_serializes_snake_case() {
-        assert_eq!(serde_json::to_string(&ActuatorSupport::No).unwrap(), "\"no\"");
+        assert_eq!(
+            serde_json::to_string(&ActuatorSupport::No).unwrap(),
+            "\"no\""
+        );
     }
 }
