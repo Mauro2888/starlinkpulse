@@ -390,7 +390,11 @@ impl MockClient {
                 outage_s,
             });
             // Local-day key: local midnight of the same calendar date.
-            let local_day = crate::usage::local_day_start_ms(day + 12 * 3_600_000, &chrono::Local);
+            // Usage key: the local calendar date of that day.
+            let local_day = crate::usage::date_key(crate::usage::local_date(
+                day + 12 * 3_600_000,
+                &chrono::Local,
+            ));
             usage.push((local_day, dl, ul));
         }
         (daily, usage)

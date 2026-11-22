@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FlaskConical, History, KeyRound, ListChecks, Loader2, RefreshCw, Settings2, ShieldCheck, Sparkles, TriangleAlert } from "lucide-react";
+import { ChevronDown, FlaskConical, History, KeyRound, ListChecks, Loader2, RefreshCw, Settings2, ShieldCheck, Sparkles, TriangleAlert } from "lucide-react";
 import type { AiProvider, AiReport, DiagnosticSummary, Settings } from "@/types/models";
 import { api } from "@/lib/api";
 import { normalizeError, type ApiError } from "@/lib/errors";
-import { advisorErrorCopy, aiDestination, isInsufficientHistory, privacyNote, type AiDestination } from "@/lib/advisor";
+import { advisorErrorCopy, aiDestination, isInsufficientHistory, privacyNote, SOURCE_LABELS, type AiDestination } from "@/lib/advisor";
+import { cn } from "@/lib/utils";
 import { formatDurationMs, formatMs, formatPercent } from "@/lib/format";
 import { useNow } from "@/hooks/use-now";
 import { useApiKey, useSettings } from "@/hooks/use-pulse";
@@ -32,9 +33,6 @@ interface Props {
   onOpenSkyView?: () => void;
 }
 
-type Phase = "idle" | "diagnosing" | "preparing" | "confirm" | "explaining";
-/** Which action produced the current error, so "Try again" repeats it. */
-type Origin = "rules" | "ai";
 
 function formatElapsed(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
@@ -44,84 +42,98 @@ function formatElapsed(ms: number): string {
 export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings, onOpenSkyView }: Props) {
   const provider: AiProvider = ai?.aiProvider ?? "off";
   const destination = ai ? aiDestination(ai) : null;
+  const aiOn = provider !== "off";
 
-  const [report, setReport] = useState<AiReport | null>(null);
-  const [loadingLast, setLoadingLast] = useState(true);
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [preview, setPreview] = useState<DiagnosticSummary | null>(null);
-  const [error, setError] = useState<{ e: ApiError; origin: Origin } | null>(null);
+  // Built-in rules report (main content).
+  const [rules, setRules] = useState<AiReport | null>(null);
+  const [rulesLoading, setRulesLoading] = useState(true);
+  const [rulesError, setRulesError] = useState<ApiError | null>(null);
   const [insufficient, setInsufficient] = useState(false);
+  const [diagnosing, setDiagnosing] = useState(false);
+
+  // Optional AI explanation (separate section under the rules report).
+  const [aiReport, setAiReport] = useState<AiReport | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiPhase, setAiPhase] = useState<"idle" | "preparing" | "confirm" | "explaining">("idle");
+  const [aiError, setAiError] = useState<ApiError | null>(null);
+  const [preview, setPreview] = useState<DiagnosticSummary | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState(0);
+
   const runId = useRef(0);
   const bodyRef = useRef<HTMLDivElement>(null);
-  const focusBody = () => requestAnimationFrame(() => bodyRef.current?.focus());
-
-  const fail = useCallback((e: ApiError, origin: Origin) => {
-    if (e.kind === "insufficient_data") setInsufficient(true);
-    else setError({ e, origin });
-    setPhase("idle");
-    focusBody();
-  }, []);
-
-  const reset = () => {
-    setError(null);
-    setNotice(null);
-    setInsufficient(false);
-  };
+  const aiRef = useRef<HTMLDivElement>(null);
+  const focus = (el: React.RefObject<HTMLDivElement | null>) => requestAnimationFrame(() => el.current?.focus());
 
   /** Built-in rules: offline and fast, so no preview is needed. */
   const diagnose = useCallback(async () => {
-    reset();
-    setPhase("diagnosing");
+    setRulesError(null);
+    setInsufficient(false);
+    setDiagnosing(true);
     try {
-      const r = await api.runDiagnostics();
-      setReport(r);
-      setPhase("idle");
+      setRules(await api.runDiagnostics());
     } catch (e) {
-      fail(normalizeError(e), "rules");
+      const err = normalizeError(e);
+      if (err.kind === "insufficient_data") setInsufficient(true);
+      else setRulesError(err);
+      focus(bodyRef);
+    } finally {
+      setDiagnosing(false);
     }
-  }, [fail]);
+  }, []);
 
-  // On open: show the last report, or run the rules right away.
+  // On open: last rules report (or run the rules now) plus the last AI explanation, if any.
   useEffect(() => {
     let alive = true;
     api
-      .getLastAiReport()
+      .getLastRulesReport()
       .then(
         (r) => {
           if (!alive) return;
-          if (r) setReport(r);
+          if (r) setRules(r);
           else void diagnose();
         },
         () => alive && void diagnose(),
       )
-      .finally(() => alive && setLoadingLast(false));
+      .finally(() => alive && setRulesLoading(false));
+    api.getLastAiReport().then(
+      (r) => alive && r && r.source !== "rules" && setAiReport(r),
+      () => undefined,
+    );
     return () => {
       alive = false;
     };
   }, [diagnose]);
 
+  const failAi = useCallback((e: ApiError) => {
+    if (e.kind === "insufficient_data") setInsufficient(true);
+    else setAiError(e);
+    setAiPhase("idle");
+    focus(aiRef);
+  }, []);
+
   const explain = useCallback(async () => {
-    reset();
+    setAiError(null);
+    setNotice(null);
     if (provider === "claude" && hasKey === false) {
-      setError({ e: normalizeError({ kind: "no_api_key" }), origin: "ai" });
+      setAiError(normalizeError({ kind: "no_api_key" }));
+      focus(aiRef);
       return;
     }
-    setPhase("preparing");
+    setAiPhase("preparing");
     try {
       const p = await api.previewAiPayload();
       if (isInsufficientHistory(p)) {
         setInsufficient(true);
-        setPhase("idle");
+        setAiPhase("idle");
         return;
       }
       setPreview(p);
-      setPhase("confirm");
+      setAiPhase("confirm");
     } catch (e) {
-      fail(normalizeError(e), "ai");
+      failAi(normalizeError(e));
     }
-  }, [provider, hasKey, fail]);
+  }, [provider, hasKey, failAi]);
 
   const confirm = useCallback(async () => {
     const payload = preview;
@@ -129,55 +141,41 @@ export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings, onOpen
     const id = ++runId.current;
     setPreview(null);
     setStartedAt(Date.now());
-    setPhase("explaining");
+    setAiPhase("explaining");
     try {
       // Send exactly what the user saw in the preview.
       const r = await api.analyzeNetworkWithAi(payload);
       if (id !== runId.current) return;
-      setReport(r);
-      setPhase("idle");
-      focusBody();
+      setAiReport(r);
+      setAiOpen(true);
+      setAiPhase("idle");
+      focus(aiRef);
     } catch (e) {
       if (id !== runId.current) return;
-      fail(normalizeError(e), "ai");
+      failAi(normalizeError(e));
     }
-  }, [fail, preview]);
+  }, [failAi, preview]);
 
   const stopWaiting = () => {
     runId.current++;
-    setPhase("idle");
-    focusBody();
+    setAiPhase("idle");
+    focus(aiRef);
     setNotice("Stopped waiting. If the explanation still finishes, it will appear here next time you open this tab.");
   };
 
-  const busy = phase !== "idle" && phase !== "confirm";
-  const aiOn = provider !== "off";
+  const aiBusy = aiPhase === "preparing" || aiPhase === "explaining";
 
-  let body;
-  if (phase === "explaining") {
-    body = <Explaining provider={provider} startedAt={startedAt} onStop={stopWaiting} />;
-  } else if (phase === "diagnosing" && !report) {
-    body = (
+  let main;
+  if (diagnosing && !rules) {
+    main = (
       <StatePanel icon={<Loader2 className="animate-spin motion-reduce:animate-none" />} title="Checking the last 24 hours">
         Running the built-in checks on this computer.
       </StatePanel>
     );
-  } else if (loadingLast) {
-    body = <Skeleton className="h-48 rounded-xl" />;
-  } else if (error) {
-    body = (
-      <ErrorPanel
-        error={error.e}
-        provider={error.origin === "rules" ? "off" : provider}
-        hasReport={Boolean(report)}
-        onRetry={error.origin === "rules" ? diagnose : explain}
-        onOpenApiKey={onOpenApiKey}
-        onOpenAiSettings={onOpenAiSettings}
-        onShowReport={() => setError(null)}
-      />
-    );
+  } else if (rulesLoading && !rules) {
+    main = <Skeleton className="h-48 rounded-xl" />;
   } else if (insufficient) {
-    body = (
+    main = (
       <StatePanel
         icon={<History />}
         title="Not enough history yet"
@@ -190,17 +188,22 @@ export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings, onOpen
         Diagnose needs at least an hour of measurements to find patterns. Keep StarlinkPulse running, then try again.
       </StatePanel>
     );
-  } else if (report) {
-    body = (
-      <ReportView
-        report={report}
-        onRerun={report.source === "rules" ? diagnose : explain}
-        rerunDisabled={busy}
-        onOpenSkyView={onOpenSkyView}
+  } else if (rulesError) {
+    main = (
+      <ErrorPanel
+        error={rulesError}
+        provider="off"
+        hasReport={Boolean(rules)}
+        onRetry={diagnose}
+        onOpenApiKey={onOpenApiKey}
+        onOpenAiSettings={onOpenAiSettings}
+        onShowReport={() => setRulesError(null)}
       />
     );
+  } else if (rules) {
+    main = <ReportView report={rules} onRerun={diagnose} rerunDisabled={diagnosing} onOpenSkyView={onOpenSkyView} />;
   } else {
-    body = (
+    main = (
       <StatePanel
         icon={<ListChecks />}
         title="Find out what's slowing you down"
@@ -216,16 +219,18 @@ export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings, onOpen
     );
   }
 
+  const showAiSection = aiOn || aiReport !== null;
+
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-3">
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <Button size="sm" variant={aiOn ? "outline" : "default"} onClick={diagnose} disabled={busy}>
-          {phase === "diagnosing" ? <Loader2 className="animate-spin" aria-hidden /> : <ListChecks aria-hidden />}
+        <Button size="sm" variant={aiOn ? "outline" : "default"} onClick={diagnose} disabled={diagnosing}>
+          {diagnosing ? <Loader2 className="animate-spin" aria-hidden /> : <ListChecks aria-hidden />}
           Run diagnostics
         </Button>
         {aiOn && (
-          <Button size="sm" onClick={explain} disabled={busy || (provider === "claude" && hasKey === null)}>
-            {phase === "preparing" ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}
+          <Button size="sm" onClick={explain} disabled={aiBusy || (provider === "claude" && hasKey === null)}>
+            {aiPhase === "preparing" ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}
             Explain with AI
           </Button>
         )}
@@ -242,25 +247,90 @@ export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings, onOpen
           </button>
         </p>
       )}
-      {notice && (
-        <p role="status" className="rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
-          {notice}
-        </p>
-      )}
+
       <div ref={bodyRef} tabIndex={-1} className="rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        {body}
+        {main}
       </div>
+
+      {showAiSection && (
+        <section
+          ref={aiRef}
+          tabIndex={-1}
+          aria-labelledby="ai-explanation-title"
+          className="flex flex-col gap-2 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <h2 id="ai-explanation-title" className="sr-only">
+            AI explanation
+          </h2>
+          {notice && (
+            <p role="status" className="rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+              {notice}
+            </p>
+          )}
+          {aiPhase === "explaining" ? (
+            <Explaining provider={provider} startedAt={startedAt} onStop={stopWaiting} />
+          ) : aiError ? (
+            <ErrorPanel
+              error={aiError}
+              provider={provider}
+              hasReport={false}
+              onRetry={explain}
+              onOpenApiKey={onOpenApiKey}
+              onOpenAiSettings={onOpenAiSettings}
+              onShowReport={() => setAiError(null)}
+            />
+          ) : aiReport ? (
+            <>
+              <button
+                type="button"
+                aria-expanded={aiOpen}
+                aria-controls="ai-explanation-body"
+                onClick={() => setAiOpen((o) => !o)}
+                className="flex items-center justify-between gap-2 rounded-xl bg-card px-3.5 py-2.5 text-left ring-1 ring-border hover:bg-muted/40 focus-visible:outline-2"
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <Sparkles className="size-4 shrink-0 text-primary" aria-hidden />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium">AI explanation</span>
+                    <span className="block truncate text-[0.6875rem] text-muted-foreground">
+                      {SOURCE_LABELS[aiReport.source]} · {new Date(aiReport.generatedAtMs).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+                    </span>
+                  </span>
+                </span>
+                <ChevronDown className={cn("size-4 shrink-0 text-muted-foreground transition-transform", aiOpen && "rotate-180")} aria-hidden />
+              </button>
+              {aiOpen && (
+                <div id="ai-explanation-body">
+                  <ReportView
+                    report={aiReport}
+                    onRerun={aiOn ? explain : undefined}
+                    rerunDisabled={aiBusy}
+                    onOpenSkyView={onOpenSkyView}
+                  />
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="rounded-xl px-1 text-xs text-muted-foreground">
+              <Sparkles className="mr-1 inline size-3.5 align-[-2px] text-primary" aria-hidden />
+              Use <span className="font-medium text-foreground">Explain with AI</span> for a plain-language explanation of
+              these findings. You'll see exactly what is sent first.
+            </p>
+          )}
+        </section>
+      )}
+
       <PreviewDialog
         payload={preview}
         destination={destination}
         onCancel={() => {
           setPreview(null);
-          setPhase("idle");
+          setAiPhase("idle");
         }}
         onConfirm={confirm}
         onCloseAutoFocus={(e) => {
           e.preventDefault();
-          focusBody();
+          focus(aiRef);
         }}
       />
     </div>

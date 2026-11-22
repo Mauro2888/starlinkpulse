@@ -151,8 +151,13 @@ pub struct DiagnosticSummary {
     /// Hours of day (0-23, local time) with the worst latency/drop rate.
     pub worst_hours: Vec<u8>,
     pub throttled_minutes: u32,
-    pub alignment_delta_azimuth_deg: Option<f64>,
-    pub alignment_delta_elevation_deg: Option<f64>,
+    /// Correction to apply = desired − actual, azimuth wrapped to (−180, 180];
+    /// positive = rotate clockwise seen from above.
+    pub azimuth_correction_deg: Option<f64>,
+    /// Correction to apply = desired − actual; positive = tilt up.
+    pub elevation_correction_deg: Option<f64>,
+    /// True when the data comes from the mock client (simulated).
+    pub is_simulated: bool,
     /// Weakest Wi-Fi client signal in dBm, if a Starlink router is present.
     pub weakest_wifi_signal_dbm: Option<f64>,
     /// Findings of the built-in rule engine, given to the AI to explain (empty for rules-only).

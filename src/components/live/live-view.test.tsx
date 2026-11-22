@@ -106,6 +106,14 @@ describe("LiveView", () => {
     expect(within(screen.getByRole("group", { name: "Power" })).getByText("31.2")).toBeInTheDocument();
   });
 
+  it("labels the GPS count as GPS satellites with an explanation", () => {
+    renderLive({ snapshot: { ...nullSnapshot, gpsValid: true, gpsSats: 14 } });
+    expect(screen.getByText("GPS satellites")).toBeInTheDocument();
+    expect(screen.getByText("14")).toBeInTheDocument();
+    expect(screen.getByText(/does not report how many Starlink satellites/)).toBeInTheDocument();
+    expect(screen.queryByText(/^satellites$/i)).not.toBeInTheDocument();
+  });
+
   it("hides the power tile when the dish has no power telemetry", () => {
     renderLive({ capabilities: { ...caps, hasPowerTelemetry: false } });
     expect(screen.queryByRole("group", { name: "Power" })).not.toBeInTheDocument();

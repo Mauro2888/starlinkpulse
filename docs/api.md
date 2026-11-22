@@ -53,7 +53,7 @@ All commands are async and return `Result<T, CommandError>`; arguments are camel
   Do not send `thinking` (adaptive is default on current models), `temperature`, `top_p`, `top_k`, or assistant prefill.
 - Refusal fallback: for `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-fable-*` add header `anthropic-beta: server-side-fallback-2026-07-01` and body `fallbacks: "default"`. Not for Haiku.
 - Response: check `stop_reason` first (`refusal` → `ai_refused`, `max_tokens` → `ai_invalid_response`); take the `text` content block (ignore `thinking`/`fallback` blocks), parse JSON, validate. `response.model` → `AiReport.model`.
-- Errors: 401/403 → `ai_auth`; 402 → `ai_auth` (billing message); 404 → `invalid_input` (model not available); 429 → `ai_rate_limit` (honor `retry-after`, no auto-loop); 500/529 → one retry with backoff, then `ai_unavailable`; network → `offline`. Timeout 120 s.
+- Errors: 401/403 → `ai_auth`; 402 → `ai_auth` (billing message); 404 → `invalid_input` (model not available); 429 → `ai_rate_limit` (honor `retry-after`, no auto-loop); 500/529 → one retry with backoff, then `ai_unavailable`; network → `offline`. Timeout 300 s (non-streaming).
 - Privacy: payload contains only `DiagnosticSummary` (no IDs, MACs, names, GPS). The API key is never logged or returned.
 
 ## Phase 4.6 – Rule engine + optional AI providers

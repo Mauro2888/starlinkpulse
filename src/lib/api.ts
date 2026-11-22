@@ -42,6 +42,7 @@ export interface CommandMap {
   get_data_usage: { args: { days: number }; result: DataUsage };
   send_test_notification: { args: void; result: null };
   run_diagnostics: { args: void; result: AiReport };
+  get_last_rules_report: { args: void; result: AiReport | null };
   list_local_models: { args: void; result: string[] };
   preview_ai_payload: { args: void; result: DiagnosticSummary };
   analyze_network_with_ai: { args: { payload: DiagnosticSummary }; result: AiReport };
@@ -142,6 +143,8 @@ export const api = {
   sendTestNotification: () => call("send_test_notification").then(() => undefined),
   /** Built-in rule engine: offline, free, no key. */
   runDiagnostics: () => call("run_diagnostics"),
+  /** Last built-in rules report (persisted). */
+  getLastRulesReport: () => call("get_last_rules_report"),
   /** Models on the configured local server (Ollama / OpenAI-compatible). */
   listLocalModels: () => call("list_local_models"),
   previewAiPayload: () => call("preview_ai_payload"),

@@ -123,10 +123,9 @@ fn cause_seconds(s: &DiagnosticSummary, cause: &str) -> f64 {
 
 /// Guidance identical to the UI helper: rotation = desired − actual (positive = clockwise
 /// seen from above), tilt = desired − actual (positive = up).
-pub fn alignment_actions(delta_az: Option<f64>, delta_el: Option<f64>) -> Vec<String> {
+pub fn alignment_actions(az_correction: Option<f64>, el_correction: Option<f64>) -> Vec<String> {
     let mut out = Vec::new();
-    if let Some(d) = delta_az.filter(|d| d.abs() > ALIGN_AZ_TOL_DEG) {
-        let rotate = -d;
+    if let Some(rotate) = az_correction.filter(|d| d.abs() > ALIGN_AZ_TOL_DEG) {
         out.push(format!(
             "Rotate the dish {} {}, seen from above.",
             deg(rotate),
@@ -137,8 +136,7 @@ pub fn alignment_actions(delta_az: Option<f64>, delta_el: Option<f64>) -> Vec<St
             }
         ));
     }
-    if let Some(d) = delta_el.filter(|d| d.abs() > ALIGN_EL_TOL_DEG) {
-        let tilt = -d;
+    if let Some(tilt) = el_correction.filter(|d| d.abs() > ALIGN_EL_TOL_DEG) {
         out.push(format!(
             "Tilt the dish {} {}.",
             deg(tilt),
@@ -195,13 +193,10 @@ pub fn evaluate(s: &DiagnosticSummary, ctx: &RuleContext) -> RulesOutcome {
 
     // Alignment (manual dishes only).
     if ctx.actuators != ActuatorSupport::Yes {
-        let actions = alignment_actions(
-            s.alignment_delta_azimuth_deg,
-            s.alignment_delta_elevation_deg,
-        );
+        let actions = alignment_actions(s.azimuth_correction_deg, s.elevation_correction_deg);
         if !actions.is_empty() {
-            let az = s.alignment_delta_azimuth_deg.unwrap_or(0.0);
-            let el = s.alignment_delta_elevation_deg.unwrap_or(0.0);
+            let az = s.azimuth_correction_deg.unwrap_or(0.0);
+            let el = s.elevation_correction_deg.unwrap_or(0.0);
             let mut all: Vec<&str> = actions.iter().map(String::as_str).collect();
             all.push("Use the alignment helper in the app to confirm the new position.");
             f.push(finding(
@@ -512,9 +507,9 @@ mod tests {
     #[test]
     fn alignment_guidance_and_motorized_skip() {
         let mut s = healthy();
-        // Recon Mini: actual 9.1°, desired 20.0° -> delta -10.9 -> rotate 11° clockwise.
-        s.alignment_delta_azimuth_deg = Some(-10.9);
-        s.alignment_delta_elevation_deg = Some(0.1);
+        // Recon Mini: actual 9.1°, desired 20.0° -> correction +10.9 -> rotate 11° clockwise.
+        s.azimuth_correction_deg = Some(10.9);
+        s.elevation_correction_deg = Some(0.1);
         let o = evaluate(&s, &manual());
         let a = find(&o, "Dish not aimed where Starlink recommends").unwrap();
         assert_eq!(
@@ -523,8 +518,8 @@ mod tests {
         );
         assert_eq!(a.actions.len(), 2, "no tilt action within tolerance");
         // Boundaries: exactly 2° / 1° is fine.
-        s.alignment_delta_azimuth_deg = Some(2.0);
-        s.alignment_delta_elevation_deg = Some(-1.0);
+        s.azimuth_correction_deg = Some(2.0);
+        s.elevation_correction_deg = Some(-1.0);
         assert!(
             find(
                 &evaluate(&s, &manual()),
@@ -532,8 +527,8 @@ mod tests {
             )
             .is_none()
         );
-        s.alignment_delta_azimuth_deg = Some(2.5);
-        s.alignment_delta_elevation_deg = Some(-1.5);
+        s.azimuth_correction_deg = Some(-2.5);
+        s.elevation_correction_deg = Some(1.5);
         let o = evaluate(&s, &manual());
         let a = find(&o, "Dish not aimed where Starlink recommends").unwrap();
         assert_eq!(

@@ -247,6 +247,7 @@ async fn session(state: &Arc<AppState>, settings: &Settings, sink: &Arc<dyn Even
                 }
                 Err(e) if settings.mock_mode == MockMode::Auto => {
                     tracing::info!(error = %e, "dish unreachable, falling back to mock data");
+                    report_unreachable(state, sink).await;
                     fallback_reason = Some(format!("Dish not reachable ({e}); showing mock data"));
                     let mock = Arc::new(MockClient::new(settings.mock_profile));
                     prepare_mock_db(state, mock.clone()).await;
@@ -257,6 +258,7 @@ async fn session(state: &Arc<AppState>, settings: &Settings, sink: &Arc<dyn Even
                 }
                 Err(e) => {
                     tracing::info!(error = %e, "dish unreachable");
+                    report_unreachable(state, sink).await;
                     set_status(state, sink, |s| {
                         s.state = ConnectionState::Offline;
                         s.router_available = false;
@@ -353,6 +355,7 @@ async fn session(state: &Arc<AppState>, settings: &Settings, sink: &Arc<dyn Even
                     tracing::info!("real dish reachable again, leaving mock mode");
                     return;
                 }
+                report_unreachable(state, sink).await;
             }
         }
     }
@@ -413,6 +416,16 @@ async fn deliver(
     }
 }
 
+/// Records that the real dish did not answer; notifies after a few minutes.
+async fn report_unreachable(state: &AppState, sink: &Arc<dyn EventSink>) {
+    let candidates = state
+        .notifier
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .observe_unreachable(now_ms());
+    deliver(state, sink, candidates, false).await;
+}
+
 /// Compares the billing-cycle usage estimate with the cap (real dish only).
 pub async fn check_data_cap(state: &AppState, sink: &Arc<dyn EventSink>, is_mock: bool) {
     if is_mock {
@@ -425,7 +438,9 @@ pub async fn check_data_cap(state: &AppState, sink: &Arc<dyn EventSink>, is_mock
     let now = now_ms();
     let start = crate::usage::cycle_start_ms(now, settings.billing_cycle_day, &chrono::Local);
     let db = state.db.clone();
-    let Ok(Ok(rows)) = tokio::task::spawn_blocking(move || lock_db(&db).usage_since(start)).await
+    let start_key = crate::usage::date_key(crate::usage::local_date(start, &chrono::Local));
+    let Ok(Ok(rows)) =
+        tokio::task::spawn_blocking(move || lock_db(&db).usage_since(start_key)).await
     else {
         return;
     };
@@ -486,16 +501,20 @@ async fn live_poll(
                 snap.power_w = cached_power(&state).await;
                 *state.snapshot.write().await = Some(snap.clone());
                 sink.telemetry(&snap);
-                let candidates = state
-                    .notifier
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .observe(&Observation {
-                        now_ms: snap.timestamp_ms,
-                        snapshot: Some(&snap),
-                        outage_cause: st.current_outage_cause.as_deref(),
-                    });
-                deliver(&state, &sink, candidates, client.is_mock()).await;
+                // Notifications describe the real dish only; mock data never feeds the engine.
+                if !client.is_mock() {
+                    let candidates = state
+                        .notifier
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .observe(&Observation {
+                            now_ms: snap.timestamp_ms,
+                            snapshot: Some(&snap),
+                            outage_cause: st.current_outage_cause.as_deref(),
+                            bootcount: st.bootcount,
+                        });
+                    deliver(&state, &sink, candidates, false).await;
+                }
                 let throttled = [
                     &snap.dl_bandwidth_restricted_reason,
                     &snap.ul_bandwidth_restricted_reason,
@@ -532,6 +551,9 @@ async fn live_poll(
             Err(e) => {
                 failures += 1;
                 tracing::debug!(error = %e, failures, "get_status failed");
+                if !client.is_mock() && e.is_connectivity() {
+                    report_unreachable(&state, &sink).await;
+                }
                 if client.is_mock() || failures >= MAX_POLL_FAILURES {
                     set_status(&state, &sink, |s| {
                         s.state = ConnectionState::Offline;
@@ -727,7 +749,7 @@ mod tests {
         .unwrap();
         let rec = Arc::new(Recorder::default());
         let sink: Arc<dyn EventSink> = rec.clone();
-        let today = crate::usage::local_day_start_ms(now_ms(), &chrono::Local);
+        let today = crate::usage::date_key(crate::usage::local_date(now_ms(), &chrono::Local));
         let mut usage = std::collections::BTreeMap::new();
         usage.insert(today, (0.7e9, 0.15e9));
         lock_db(&state.db).add_usage(&usage).unwrap();

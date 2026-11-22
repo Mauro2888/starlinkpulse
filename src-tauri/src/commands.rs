@@ -256,9 +256,12 @@ pub async fn preview_ai_payload(state: State<'_, Arc<AppState>>) -> CmdResult<Di
 }
 
 #[tauri::command]
-pub async fn analyze_network_with_ai(state: State<'_, Arc<AppState>>) -> CmdResult<AiReport> {
+pub async fn analyze_network_with_ai(
+    state: State<'_, Arc<AppState>>,
+    payload: DiagnosticSummary,
+) -> CmdResult<AiReport> {
     let client = crate::ai::anthropic::AnthropicClient::new()?;
-    Ok(crate::ai::analyze(&state, &client, None).await?)
+    Ok(crate::ai::analyze(&state, &client, None, payload).await?)
 }
 
 /// Built-in rule engine diagnosis (offline, no key).
@@ -318,31 +321,45 @@ pub async fn data_usage(state: &AppState, days: u32) -> Result<DataUsage, AppErr
             "days must be between 1 and 90".into(),
         ));
     }
+    use crate::usage::{date_key, local_date, local_midnight_ms};
     let settings = state.settings.read().await.clone();
     let db = state.current_db().await;
     let now = now_ms();
     let tz = chrono::Local;
-    let day_keys = crate::usage::last_local_days(now, days, &tz);
+    let today = local_date(now, &tz);
+    let dates: Vec<chrono::NaiveDate> = (0..days as i64)
+        .rev()
+        .filter_map(|back| today.checked_sub_signed(chrono::Duration::days(back)))
+        .collect();
     let cycle_start = crate::usage::cycle_start_ms(now, settings.billing_cycle_day, &tz);
-    let from = day_keys.first().copied().unwrap_or(now).min(cycle_start);
+    let cycle_key = date_key(local_date(cycle_start, &tz));
+    let from = dates
+        .first()
+        .map(|d| date_key(*d))
+        .unwrap_or(cycle_key)
+        .min(cycle_key);
     let rows = tokio::task::spawn_blocking(move || lock_db(&db).usage_since(from))
         .await
         .map_err(|e| AppError::Internal(e.to_string()))??;
-    let by_day: std::collections::HashMap<i64, &DailyUsage> =
-        rows.iter().map(|r| (r.day_ms, r)).collect();
-    let daily = day_keys
+    let by_key: std::collections::HashMap<i64, &crate::storage::UsageRow> =
+        rows.iter().map(|r| (r.date_key, r)).collect();
+    let daily = dates
         .iter()
         .map(|d| {
-            by_day.get(d).map(|r| (*r).clone()).unwrap_or(DailyUsage {
-                day_ms: *d,
-                ..Default::default()
-            })
+            let row = by_key.get(&date_key(*d));
+            DailyUsage {
+                day_ms: local_midnight_ms(*d, &tz),
+                download_bytes: row.map_or(0.0, |r| r.download_bytes),
+                upload_bytes: row.map_or(0.0, |r| r.upload_bytes),
+            }
         })
         .collect();
-    let cycle = rows.iter().filter(|r| r.day_ms >= cycle_start);
-    let (down, up) = cycle.fold((0.0, 0.0), |(d, u), r| {
-        (d + r.download_bytes, u + r.upload_bytes)
-    });
+    let (down, up) = rows
+        .iter()
+        .filter(|r| r.date_key >= cycle_key)
+        .fold((0.0, 0.0), |(d, u), r| {
+            (d + r.download_bytes, u + r.upload_bytes)
+        });
     Ok(DataUsage {
         daily,
         cycle_start_ms: cycle_start,
@@ -377,6 +394,7 @@ pub async fn send_test_notification(state: State<'_, Arc<AppState>>) -> CmdResul
         title: "StarlinkPulse".into(),
         body: "Notifications are working.".into(),
         bypass_cooldown: true,
+        tag: None,
     });
     Ok(())
 }

@@ -19,7 +19,7 @@ of reboots (BOOTING outages) in the window.
 | Limited data | configuration | `historyMinutes` < 720 (12 h) | info |
 | Dish view obstructed | obstruction | `fractionObstructed` > 1 % **or** OBSTRUCTED outages ≥ 30 s | warning |
 | | | `fractionObstructed` > 3 % **or** OBSTRUCTED outages ≥ 300 s | critical |
-| Dish not aimed where Starlink recommends | configuration | dishes without motors only; \|Δ azimuth\| > 2° or \|Δ elevation\| > 1° (actual − recommended) | warning |
+| Dish not aimed where Starlink recommends | configuration | dishes without motors only; \|`azimuthCorrectionDeg`\| > 2° or \|`elevationCorrectionDeg`\| > 1° (correction = recommended − actual) | warning |
 | Speed limited by your plan | starlink_network | `throttledMinutes` > 0 (POLICY_LIMIT = plan deprioritization or data limit). Detail adds "almost all the time" when ≥ 90 % of recorded minutes, and the worst hours | info |
 | Outages on the Starlink side | starlink_network | no significant obstruction (see above) and NO_SCHEDULE + NO_DOWNLINK + NO_PINGS + SKY_SEARCH + NETWORK_ISSUE ≥ 60 s | warning |
 | | | same, ≥ 600 s | critical |
@@ -38,9 +38,10 @@ Boundaries are exclusive: exactly 1 %, 100 ms or -70 dBm do **not** trigger a fi
 
 Same convention as the UI alignment helper:
 
-- **Rotation:** recommended − actual azimuth, wrapped to ±180°. Positive means rotate
-  clockwise, seen from above.
-- **Tilt:** recommended − actual elevation. Positive means tilt up.
+- **Rotation:** `azimuthCorrectionDeg` = recommended − actual azimuth, wrapped to
+  (−180°, 180°]. Positive means rotate clockwise, seen from above.
+- **Tilt:** `elevationCorrectionDeg` = recommended − actual elevation. Positive means tilt up.
+- The AI system prompt states the same signs, so models never invert the direction.
 - Values ≥ 10° are rounded to whole degrees; smaller values to 0.1°.
 
 ## Output

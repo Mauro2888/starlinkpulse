@@ -28,8 +28,6 @@ pub struct SummaryInputs<'a> {
     pub capabilities: Option<&'a DishCapabilities>,
     pub snapshot: Option<&'a TelemetrySnapshot>,
     pub wifi_clients: &'a [WifiClientInfo],
-    /// Local time offset from UTC in seconds (for `worstHours`).
-    pub utc_offset_s: i64,
     /// Output language for the advisor (ISO 639-1).
     pub language: &'a str,
 }
@@ -90,7 +88,8 @@ pub fn history_minutes(minutes: &[HistoryPoint], now_ms: i64) -> u32 {
 }
 
 /// Builds the summary for the last [`WINDOW_HOURS`].
-pub fn build_summary(inp: &SummaryInputs<'_>) -> DiagnosticSummary {
+/// Builds the summary; `tz` is the local time zone used for `worstHours` (DST-correct).
+pub fn build_summary<Tz: chrono::TimeZone>(inp: &SummaryInputs<'_>, tz: &Tz) -> DiagnosticSummary {
     let start = inp.now_ms - WINDOW_HOURS as i64 * 60 * MINUTE_MS;
     let minutes: Vec<&HistoryPoint> = inp
         .minutes
@@ -126,8 +125,10 @@ pub fn build_summary(inp: &SummaryInputs<'_>) -> DiagnosticSummary {
     // Worst local hours: score = p95 latency relative to the window average + drop rate.
     let mut hours: BTreeMap<u8, Vec<&HistoryPoint>> = BTreeMap::new();
     for m in &minutes {
-        let local_s = (m.minute_ms / 1000 + inp.utc_offset_s).rem_euclid(86_400);
-        hours.entry((local_s / 3600) as u8).or_default().push(m);
+        hours
+            .entry(crate::usage::local_hour(m.minute_ms, tz))
+            .or_default()
+            .push(m);
     }
     let base_latency = latency_avg.unwrap_or(0.0).max(1.0);
     let mut scored: Vec<(u8, f64)> = hours
@@ -145,8 +146,9 @@ pub fn build_summary(inp: &SummaryInputs<'_>) -> DiagnosticSummary {
     let caps = inp.capabilities;
     let snap = inp.snapshot;
     let align = snap.map(|s| &s.alignment);
-    let delta = |a: Option<f64>, d: Option<f64>| match (a, d) {
-        (Some(a), Some(d)) => Some(a - d),
+    // Correction to apply: desired − actual.
+    let correction = |actual: Option<f64>, desired: Option<f64>| match (actual, desired) {
+        (Some(a), Some(d)) => Some(d - a),
         _ => None,
     };
 
@@ -167,16 +169,17 @@ pub fn build_summary(inp: &SummaryInputs<'_>) -> DiagnosticSummary {
         outages_by_cause,
         worst_hours,
         throttled_minutes: inp.throttled_minutes,
-        alignment_delta_azimuth_deg: delta(
+        azimuth_correction_deg: correction(
             align.and_then(|a| a.azimuth_deg),
             align.and_then(|a| a.desired_azimuth_deg),
         )
         .map(|d| round(wrap_deg(d), 1)),
-        alignment_delta_elevation_deg: delta(
+        elevation_correction_deg: correction(
             align.and_then(|a| a.elevation_deg),
             align.and_then(|a| a.desired_elevation_deg),
         )
         .map(|d| round(d, 1)),
+        is_simulated: caps.is_some_and(|c| c.is_mock),
         weakest_wifi_signal_dbm: weakest_signal_dbm(inp.wifi_clients),
         // Filled by the caller from the rule engine when building the AI payload.
         rule_findings: Vec::new(),
@@ -283,18 +286,19 @@ mod tests {
             signal_strength_dbm: Some(-77.0),
             ..Default::default()
         }];
-        let s = build_summary(&SummaryInputs {
-            now_ms: now,
-            minutes: &minutes,
-            outages: &outages,
-            throttled_minutes: throttled,
-            capabilities: Some(&caps),
-            snapshot: Some(&snap),
-            wifi_clients: &wifi,
-            // Local time UTC+1: 20:00 UTC is 21 local.
-            utc_offset_s: 3600,
-            language: "en",
-        });
+        let s = build_summary(
+            &SummaryInputs {
+                now_ms: now,
+                minutes: &minutes,
+                outages: &outages,
+                throttled_minutes: throttled,
+                capabilities: Some(&caps),
+                snapshot: Some(&snap),
+                wifi_clients: &wifi,
+                language: "en",
+            },
+            &chrono::FixedOffset::east_opt(3600).unwrap(),
+        ); // UTC+1: 20:00 UTC is 21 local
         assert_eq!(s.language, "en");
         assert_eq!(s.history_minutes, 24 * 60);
         assert_eq!(s.window_hours, 24);
@@ -320,27 +324,29 @@ mod tests {
         );
         assert_eq!(s.throttled_minutes, 42);
         assert_eq!(s.fraction_obstructed, Some(0.0123));
-        assert_eq!(
-            s.alignment_delta_azimuth_deg,
-            Some(-10.0),
-            "wrapped across north"
-        );
-        assert_eq!(s.alignment_delta_elevation_deg, Some(-2.5));
+        // Actual 355°, desired 5°: rotate 10° clockwise (wrapped across north).
+        assert_eq!(s.azimuth_correction_deg, Some(10.0));
+        // Actual 64°, desired 66.5°: tilt 2.5° up.
+        assert_eq!(s.elevation_correction_deg, Some(2.5));
+        assert!(!s.is_simulated);
         assert_eq!(s.weakest_wifi_signal_dbm, Some(-77.0));
         assert_eq!(s.hardware_version.as_deref(), Some("mini1_prod2"));
     }
 
     #[test]
     fn empty_inputs_give_empty_summary() {
-        let s = build_summary(&SummaryInputs {
-            now_ms: DAY0,
-            ..Default::default()
-        });
+        let s = build_summary(
+            &SummaryInputs {
+                now_ms: DAY0,
+                ..Default::default()
+            },
+            &chrono::Utc,
+        );
         assert_eq!(s.latency_avg_ms, None);
         assert_eq!(s.latency_p95_ms, None);
         assert_eq!(s.outage_count, 0);
         assert!(s.worst_hours.is_empty());
-        assert_eq!(s.alignment_delta_azimuth_deg, None);
+        assert_eq!(s.azimuth_correction_deg, None);
         assert_eq!(s.weakest_wifi_signal_dbm, None);
     }
 
@@ -354,13 +360,54 @@ mod tests {
                 ..Default::default()
             })
             .collect();
-        let s = build_summary(&SummaryInputs {
-            now_ms: DAY0 + HOUR,
-            minutes: &pts,
-            ..Default::default()
-        });
+        let s = build_summary(
+            &SummaryInputs {
+                now_ms: DAY0 + HOUR,
+                minutes: &pts,
+                ..Default::default()
+            },
+            &chrono::Utc,
+        );
         assert!(s.worst_hours.is_empty());
         assert_eq!(s.latency_avg_ms, Some(200.0));
+    }
+
+    #[test]
+    fn worst_hours_follow_dst() {
+        use crate::usage::test_tz::EuLike;
+        // 30 minutes of bad latency at 2026-03-29 20:00 UTC = 22:00 CEST (after the spring
+        // change); a fixed +1 offset would wrongly say 21.
+        let start = chrono::NaiveDate::from_ymd_opt(2026, 3, 29)
+            .unwrap()
+            .and_hms_opt(20, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp_millis();
+        let pts: Vec<HistoryPoint> = (0..30)
+            .map(|i| HistoryPoint {
+                minute_ms: start + i * MINUTE_MS,
+                samples: 60,
+                latency_avg_ms: Some(80.0),
+                latency_p95_ms: Some(90.0),
+                ..Default::default()
+            })
+            .chain((0..30).map(|i| HistoryPoint {
+                minute_ms: start - 5 * HOUR + i * MINUTE_MS,
+                samples: 60,
+                latency_avg_ms: Some(30.0),
+                latency_p95_ms: Some(35.0),
+                ..Default::default()
+            }))
+            .collect();
+        let s = build_summary(
+            &SummaryInputs {
+                now_ms: start + HOUR,
+                minutes: &pts,
+                ..Default::default()
+            },
+            &EuLike,
+        );
+        assert_eq!(s.worst_hours, vec![22, 17]);
     }
 
     #[test]

@@ -8,6 +8,7 @@ import {
   CloudOff,
   FlaskConical,
   Gauge,
+  Info,
   Loader2,
   PlugZap,
   Radio,
@@ -37,6 +38,7 @@ import { MetricTile, Reading, StatusDot, type StatusTone } from "@/components/me
 import { Sparkline } from "@/components/sparkline";
 import { Banner, Section, StatePanel } from "@/components/state-panels";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export interface LiveViewProps {
   snapshot: TelemetrySnapshot | null;
@@ -302,14 +304,14 @@ export function LiveView({ snapshot, buffer, capabilities, connection, error, no
               <Row label="Model" value={dishModelName(capabilities)} />
               <Row label="Firmware" value={capabilities?.softwareVersion} mono />
               <Row
-                label="GPS"
-                value={
-                  s.gpsValid == null
-                    ? null
-                    : s.gpsValid
-                      ? `Valid${isNum(s.gpsSats) ? `, ${s.gpsSats} satellites` : ""}`
-                      : "No fix"
-                }
+                label="GPS fix"
+                value={s.gpsValid == null ? null : s.gpsValid ? "Valid" : "No fix"}
+              />
+              <Row
+                label="GPS satellites"
+                value={isNum(s.gpsSats) ? String(s.gpsSats) : null}
+                mono
+                hint={GPS_SATS_HINT}
               />
               <Row label="Software update" value={s.softwareUpdateState ? humanizeEnum(s.softwareUpdateState) : null} />
               <Row label="Snow melt" value={s.isHeating == null ? null : s.isHeating ? "Heating now" : "Idle"} />
@@ -356,10 +358,41 @@ function ThroughputReading({
   );
 }
 
-function Row({ label, value, mono }: { label: string; value: string | null | undefined; mono?: boolean }) {
+export const GPS_SATS_HINT =
+  "Used for location/timing. The dish does not report how many Starlink satellites it is connected to.";
+
+function Row({
+  label,
+  value,
+  mono,
+  hint,
+}: {
+  label: string;
+  value: string | null | undefined;
+  mono?: boolean;
+  /** Explanation shown in a tooltip next to the label. */
+  hint?: string;
+}) {
   return (
     <>
-      <dt className="text-muted-foreground">{label}</dt>
+      <dt className="flex items-center gap-1 text-muted-foreground">
+        {label}
+        {hint && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="grid size-4 place-items-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-2"
+              >
+                <Info className="size-3" aria-hidden />
+                <span className="sr-only">About {label}</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-60">{hint}</TooltipContent>
+          </Tooltip>
+        )}
+        {hint && <span className="sr-only">{hint}</span>}
+      </dt>
       <dd className={cn("truncate text-right text-foreground", mono && "num")} title={value ?? undefined}>
         {value ?? <span className="text-muted-foreground">{EM_DASH}</span>}
       </dd>

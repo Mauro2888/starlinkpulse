@@ -12,7 +12,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 
 use crate::dish::DishHistory;
-use crate::models::{AiReport, DailyUsage, DishEvent, HistoryPoint};
+use crate::models::{AiReport, DishEvent, HistoryPoint};
 use crate::time::{DAY_MS, MINUTE_MS, day_floor, minute_floor};
 
 pub const RAW_RETENTION_MS: i64 = 2 * 3_600_000;
@@ -45,6 +45,14 @@ pub struct DailyAggregate {
     pub energy_wh: Option<f64>,
     pub outage_count: u32,
     pub outage_s: f64,
+}
+
+/// Estimated usage for one local calendar date (`date_key` = YYYYMMDD).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct UsageRow {
+    pub date_key: i64,
+    pub download_bytes: f64,
+    pub upload_bytes: f64,
 }
 
 /// Result of one ingest.
@@ -230,7 +238,40 @@ CREATE TABLE usage_daily (
 -- Last rule-engine report (single row); the AI report stays in ai_report.
 CREATE TABLE rules_report (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL);
 "#,
+    r#"
+-- Usage keyed by LOCAL calendar date (YYYYMMDD) instead of a midnight timestamp, so a
+-- time-zone or DST change never splits or merges days. Rows are moved by `rekey_usage`.
+CREATE TABLE usage_local_day (
+    date_key INTEGER PRIMARY KEY,
+    download_bytes REAL NOT NULL,
+    upload_bytes REAL NOT NULL
+);
+"#,
 ];
+
+/// Schema version whose migration also needs the Rust step [`rekey_usage`].
+const USAGE_REKEY_VERSION: u32 = 5;
+
+/// Moves `usage_daily` (local-midnight ms) rows to `usage_local_day` (YYYYMMDD), then drops
+/// the old table.
+fn rekey_usage(conn: &Connection) -> Result<(), rusqlite::Error> {
+    let rows: Vec<(i64, f64, f64)> = {
+        let mut stmt =
+            conn.prepare("SELECT day_ms, download_bytes, upload_bytes FROM usage_daily")?;
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<Result<_, _>>()?
+    };
+    let mut map = std::collections::BTreeMap::new();
+    for (day_ms, down, up) in rows {
+        let key = crate::usage::date_key(crate::usage::local_date(day_ms, &chrono::Local));
+        let e: &mut (f64, f64) = map.entry(key).or_default();
+        e.0 += down;
+        e.1 += up;
+    }
+    add_usage(conn, &map)?;
+    conn.execute_batch("DROP TABLE usage_daily;")?;
+    Ok(())
+}
 
 const LAST_CURRENT_KEY: &str = "history_last_current";
 const BOOT_KEY: &str = "history_last_boot";
@@ -289,6 +330,20 @@ impl Db {
         Ok(db)
     }
 
+    /// In-memory DB migrated only up to `version` (migration tests).
+    #[cfg(test)]
+    fn open_in_memory_at_version(version: u32) -> Result<Self, rusqlite::Error> {
+        let mut db = Self {
+            conn: Connection::open_in_memory()?,
+        };
+        db.conn.execute_batch(
+            "CREATE TABLE schema_version (version INTEGER NOT NULL);
+             INSERT INTO schema_version (version) VALUES (0);",
+        )?;
+        db.migrate_to(0, version)?;
+        Ok(db)
+    }
+
     pub fn schema_version(&self) -> Result<u32, rusqlite::Error> {
         self.conn
             .query_row("SELECT version FROM schema_version", [], |r| r.get(0))
@@ -310,9 +365,22 @@ impl Db {
                 0
             }
         };
-        for (i, sql) in MIGRATIONS.iter().enumerate().skip(current as usize) {
+        self.migrate_to(current, MIGRATIONS.len() as u32)
+    }
+
+    /// Applies migrations `(from, to]`.
+    fn migrate_to(&mut self, from: u32, to: u32) -> Result<(), rusqlite::Error> {
+        for (i, sql) in MIGRATIONS
+            .iter()
+            .enumerate()
+            .skip(from as usize)
+            .take(to.saturating_sub(from) as usize)
+        {
             let tx = self.conn.transaction()?;
             tx.execute_batch(sql)?;
+            if i as u32 + 1 == USAGE_REKEY_VERSION {
+                rekey_usage(&tx)?;
+            }
             tx.execute("UPDATE schema_version SET version = ?1", [i as u32 + 1])?;
             tx.commit()?;
             tracing::info!(version = i + 1, "database migrated");
@@ -396,14 +464,17 @@ impl Db {
         }
         let tx = self.conn.transaction()?;
         let mut minutes = BTreeSet::new();
+        // Samples actually inserted: a reboot-triggered full re-read never re-counts seconds
+        // that are already stored (usage is integrated from these only).
+        let mut inserted: Vec<Sample> = Vec::with_capacity(samples.len());
         {
             let mut ins = tx.prepare_cached(
-                "INSERT OR REPLACE INTO samples
+                "INSERT OR IGNORE INTO samples
                  (ts_s, latency_ms, drop_rate, downlink_bps, uplink_bps, power_w)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             )?;
             for s in &samples {
-                ins.execute(params![
+                let changed = ins.execute(params![
                     s.ts_s,
                     s.latency_ms,
                     s.drop_rate,
@@ -411,13 +482,16 @@ impl Db {
                     s.uplink_bps,
                     s.power_w
                 ])?;
-                minutes.insert(minute_floor(s.ts_s * 1000));
+                if changed > 0 {
+                    inserted.push(*s);
+                    minutes.insert(minute_floor(s.ts_s * 1000));
+                }
             }
         }
-        // Data usage: only the new (deduplicated) seconds are integrated.
+        // Data usage: only the newly inserted seconds are integrated.
         add_usage(
             &tx,
-            &crate::usage::usage_by_local_day(&samples, &chrono::Local),
+            &crate::usage::usage_by_local_day(&inserted, &chrono::Local),
         )?;
         // Recompute every touched minute from raw samples so partial minutes merge exactly.
         let mut points = Vec::with_capacity(minutes.len());
@@ -453,7 +527,7 @@ impl Db {
         prune(&tx, fetch_ms)?;
         tx.commit()?;
         Ok(IngestReport {
-            new_samples: samples.len(),
+            new_samples: inserted.len(),
             counter_reset: reset,
             minutes_updated: points.len(),
             events: all_events.len(),
@@ -572,14 +646,15 @@ impl Db {
     }
 
     /// Usage rows with `day_ms >= from_ms`, ascending.
-    pub fn usage_since(&self, from_ms: i64) -> Result<Vec<DailyUsage>, rusqlite::Error> {
+    /// Usage rows with local date key `>= from_key` (YYYYMMDD), ascending.
+    pub fn usage_since(&self, from_key: i64) -> Result<Vec<UsageRow>, rusqlite::Error> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT day_ms, download_bytes, upload_bytes FROM usage_daily
-             WHERE day_ms >= ?1 ORDER BY day_ms ASC",
+            "SELECT date_key, download_bytes, upload_bytes FROM usage_local_day
+             WHERE date_key >= ?1 ORDER BY date_key ASC",
         )?;
-        let rows = stmt.query_map([from_ms], |r| {
-            Ok(DailyUsage {
-                day_ms: r.get(0)?,
+        let rows = stmt.query_map([from_key], |r| {
+            Ok(UsageRow {
+                date_key: r.get(0)?,
                 download_bytes: r.get(1)?,
                 upload_bytes: r.get(2)?,
             })
@@ -736,10 +811,10 @@ fn add_usage(
     usage: &std::collections::BTreeMap<i64, (f64, f64)>,
 ) -> Result<(), rusqlite::Error> {
     let mut stmt = conn.prepare_cached(
-        "INSERT INTO usage_daily (day_ms, download_bytes, upload_bytes) VALUES (?1, ?2, ?3)
-         ON CONFLICT (day_ms) DO UPDATE SET
-            download_bytes = usage_daily.download_bytes + excluded.download_bytes,
-            upload_bytes = usage_daily.upload_bytes + excluded.upload_bytes",
+        "INSERT INTO usage_local_day (date_key, download_bytes, upload_bytes) VALUES (?1, ?2, ?3)
+         ON CONFLICT (date_key) DO UPDATE SET
+            download_bytes = usage_local_day.download_bytes + excluded.download_bytes,
+            upload_bytes = usage_local_day.upload_bytes + excluded.upload_bytes",
     )?;
     for (day, (down, up)) in usage {
         stmt.execute(params![day, down, up])?;
@@ -944,9 +1019,10 @@ fn prune(conn: &Connection, now_ms: i64) -> Result<(), rusqlite::Error> {
         "DELETE FROM daily WHERE day_ms < ?1",
         [now_ms - DAILY_RETENTION_MS],
     )?;
+    let oldest = crate::usage::local_date(now_ms - DAILY_RETENTION_MS - DAY_MS, &chrono::Local);
     conn.execute(
-        "DELETE FROM usage_daily WHERE day_ms < ?1",
-        [now_ms - DAILY_RETENTION_MS - DAY_MS],
+        "DELETE FROM usage_local_day WHERE date_key < ?1",
+        [crate::usage::date_key(oldest)],
     )?;
     conn.execute(
         "DELETE FROM throttle_minutes WHERE minute_ms < ?1",
@@ -1047,6 +1123,103 @@ mod tests {
         assert_eq!(m0.power_avg_w, None);
         assert_eq!(pts[1].minute_ms, 60_000);
         assert_eq!(pts[1].samples, 30);
+    }
+
+    #[test]
+    fn migration_v1_to_latest_keeps_data() {
+        let mut db = Db::open_in_memory_at_version(1).unwrap();
+        assert_eq!(db.schema_version().unwrap(), 1);
+        let now: i64 = 1_800_000_000_000;
+        // Data as written by a v1 build (v1 schema only).
+        db.conn
+            .execute_batch(&format!(
+                "INSERT OR REPLACE INTO minutes (minute_ms, samples, latency_avg_ms) VALUES ({m}, 60, 33.0);
+                 INSERT INTO events (start_ms, cause, duration_ms, severity, is_outage)
+                     VALUES ({e}, 'OBSTRUCTED', 5000, 'WARNING', 1);
+                 INSERT OR REPLACE INTO meta (key, value) VALUES ('history_last_current', '120');",
+                m = minute_floor(now - 60_000),
+                e = now - 30_000
+            ))
+            .unwrap();
+        db.migrate().unwrap();
+        assert_eq!(db.schema_version().unwrap(), MIGRATIONS.len() as u32);
+        let pts = db.history(60, now).unwrap();
+        assert!(pts.iter().any(|p| p.latency_avg_ms == Some(33.0)));
+        assert_eq!(db.events(60, now).unwrap().len(), 1);
+        assert_eq!(db.last_current().unwrap(), Some(120));
+        // Tables of later versions exist and work.
+        db.mark_throttled(now).unwrap();
+        assert_eq!(db.throttled_minutes(60, now).unwrap(), 1);
+        assert_eq!(db.last_ai_report().unwrap(), None);
+        assert_eq!(db.last_rules_report().unwrap(), None);
+        assert!(db.usage_since(0).unwrap().is_empty());
+        // Incremental ingest continues from the stored counter.
+        let r = db
+            .ingest_history(&history(180, 900, |_| 33.0), now + 60_000)
+            .unwrap();
+        assert_eq!(r.new_samples, 60);
+    }
+
+    #[test]
+    fn migration_rekeys_usage_by_local_date() {
+        use crate::usage::{date_key, local_date, local_midnight_ms};
+        let db = Db::open_in_memory_at_version(USAGE_REKEY_VERSION - 1).unwrap();
+        let tz = chrono::Local;
+        let d1 = chrono::NaiveDate::from_ymd_opt(2026, 11, 20).unwrap();
+        let d2 = chrono::NaiveDate::from_ymd_opt(2026, 11, 21).unwrap();
+        for (d, down) in [(d1, 1e9), (d2, 2e9)] {
+            db.conn
+                .execute(
+                    "INSERT INTO usage_daily (day_ms, download_bytes, upload_bytes) VALUES (?1, ?2, ?3)",
+                    params![local_midnight_ms(d, &tz), down, down / 10.0],
+                )
+                .unwrap();
+        }
+        let mut db = db;
+        db.migrate().unwrap();
+        let rows = db.usage_since(0).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].date_key, date_key(d1));
+        assert_eq!(rows[1].date_key, 20261121);
+        assert_eq!(rows[1].download_bytes, 2e9);
+        assert_eq!(local_date(local_midnight_ms(d2, &tz), &tz), d2);
+        let old: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name = 'usage_daily'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(old, 0, "old table dropped");
+    }
+
+    #[test]
+    fn reboot_reread_does_not_double_count_usage() {
+        let mut db = Db::open_in_memory().unwrap();
+        let t0: i64 = 1_800_000_000;
+        let boot = |u: u64, c: u64| {
+            Some(BootInfo {
+                uptime_s: Some(u),
+                bootcount: Some(c),
+            })
+        };
+        db.ingest_history_with_boot(&history(900, 900, |_| 25.0), t0 * 1000, boot(900, 1))
+            .unwrap();
+        // A bootcount glitch makes the same buffer look like a reboot: full re-read, but the
+        // seconds are already stored, so nothing is counted twice.
+        let r = db
+            .ingest_history_with_boot(&history(900, 900, |_| 25.0), t0 * 1000, boot(900, 2))
+            .unwrap();
+        assert!(r.counter_reset);
+        assert_eq!(r.new_samples, 0);
+        let total: f64 = db
+            .usage_since(0)
+            .unwrap()
+            .iter()
+            .map(|u| u.download_bytes)
+            .sum();
+        assert_eq!(total, 900.0 * 1000.0);
     }
 
     #[test]

@@ -67,6 +67,7 @@ function fake(overrides: Record<string, () => Promise<unknown>> = {}) {
       if (cmd === "analyze_network_with_ai") sentArgs.push(args ?? {});
       if (overrides[cmd]) return overrides[cmd]();
       if (cmd === "get_last_ai_report") return null;
+      if (cmd === "get_last_rules_report") return null;
       if (cmd === "run_diagnostics") return report("rules", "Rules headline");
       if (cmd === "preview_ai_payload") return summary;
       if (cmd === "analyze_network_with_ai") return report("claude", "AI headline");
@@ -104,12 +105,21 @@ describe("Diagnose tab", () => {
     expect(calls).not.toContain("preview_ai_payload");
   });
 
-  it("shows the last saved report instead of re-running", async () => {
-    const calls = fake({ get_last_ai_report: async () => report("local", "Saved local report") });
-    renderTab("off");
-    expect(await screen.findByText("Saved local report")).toBeInTheDocument();
-    expect(screen.getByText("Local model")).toBeInTheDocument();
+  it("shows the saved rules report instead of re-running, with a collapsed saved AI explanation", async () => {
+    const calls = fake({
+      get_last_rules_report: async () => report("rules", "Saved rules report"),
+      get_last_ai_report: async () => report("local", "Saved local explanation"),
+    });
+    const { user } = renderTab("off");
+    expect(await screen.findByText("Saved rules report")).toBeInTheDocument();
     expect(calls).not.toContain("run_diagnostics");
+    const toggle = await screen.findByRole("button", { name: /^AI explanation/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Saved local explanation")).not.toBeInTheDocument();
+    await user.click(toggle);
+    expect(screen.getByText("Saved local explanation")).toBeInTheDocument();
+    // Both reports are visible: the rules stay on top.
+    expect(screen.getByText("Saved rules report")).toBeInTheDocument();
   });
 
   it("hides 'Explain with AI' when AI is off and offers to turn it on", async () => {
@@ -137,7 +147,8 @@ describe("Diagnose tab", () => {
 
     await user.click(within(dialog).getByRole("button", { name: "Send and analyze" }));
     expect(await screen.findByText("AI headline")).toBeInTheDocument();
-    expect(screen.getByText("Claude")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^AI explanation/ })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Rules headline")).toBeInTheDocument();
     expect(calls.filter((c) => c === "analyze_network_with_ai")).toHaveLength(1);
     // The exact previewed payload is what gets sent.
     expect(sentArgs[0]).toEqual({ payload: summary });

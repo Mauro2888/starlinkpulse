@@ -47,8 +47,22 @@ pub fn local_hour<Tz: TimeZone>(ts_ms: i64, tz: &Tz) -> u8 {
         .unwrap_or(0)
 }
 
-/// Integrates per-second throughput into bytes per local day:
-/// `day_ms -> (download_bytes, upload_bytes)`. Each sample covers one second.
+/// Storage key of a local calendar date: `YYYYMMDD` (e.g. 20261122).
+pub fn date_key(d: NaiveDate) -> i64 {
+    d.year() as i64 * 10_000 + d.month() as i64 * 100 + d.day() as i64
+}
+
+/// Inverse of [`date_key`].
+pub fn date_from_key(key: i64) -> Option<NaiveDate> {
+    NaiveDate::from_ymd_opt(
+        (key / 10_000) as i32,
+        ((key / 100) % 100) as u32,
+        (key % 100) as u32,
+    )
+}
+
+/// Integrates per-second throughput into bytes per local calendar date:
+/// `date_key (YYYYMMDD) -> (download_bytes, upload_bytes)`. Each sample covers one second.
 pub fn usage_by_local_day<Tz: TimeZone>(samples: &[Sample], tz: &Tz) -> BTreeMap<i64, (f64, f64)> {
     let mut out: BTreeMap<i64, (f64, f64)> = BTreeMap::new();
     // Cache the current day range to avoid a tz lookup per sample.
@@ -64,8 +78,9 @@ pub fn usage_by_local_day<Tz: TimeZone>(samples: &[Sample], tz: &Tz) -> BTreeMap
                     .succ_opt()
                     .map(|d| local_midnight_ms(d, tz))
                     .unwrap_or(start + 86_400_000);
-                range = Some((start, end, start));
-                start
+                let k = date_key(date);
+                range = Some((start, end, k));
+                k
             }
         };
         let e = out.entry(key).or_default();
@@ -223,10 +238,14 @@ mod tests {
             .collect();
         let m = usage_by_local_day(&samples, &tz);
         let keys: Vec<i64> = m.keys().copied().collect();
-        let d28 = local_midnight_ms(NaiveDate::from_ymd_opt(2026, 3, 28).unwrap(), &tz);
-        let d29 = local_midnight_ms(NaiveDate::from_ymd_opt(2026, 3, 29).unwrap(), &tz);
-        let d30 = local_midnight_ms(NaiveDate::from_ymd_opt(2026, 3, 30).unwrap(), &tz);
+        let (d28, d29, d30) = (20260328, 20260329, 20260330);
         assert_eq!(keys, vec![d28, d29, d30]);
+        assert_eq!(date_from_key(d29), NaiveDate::from_ymd_opt(2026, 3, 29));
+        assert_eq!(
+            date_key(NaiveDate::from_ymd_opt(2027, 1, 5).unwrap()),
+            20270105
+        );
+        assert_eq!(date_from_key(20261340), None);
         // 22:30-23:00 UTC = 30 min on the 28th; the 29th is a 23 h local day.
         assert_eq!(m[&d28].0, 1800.0 * 1000.0);
         assert_eq!(m[&d29].0, 23.0 * 3600.0 * 1000.0);

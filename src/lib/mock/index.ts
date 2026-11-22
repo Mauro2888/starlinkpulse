@@ -87,13 +87,18 @@ export class MockBackend implements Backend {
   private stowed = false;
   private snowMelt: SnowMeltMode = "auto";
   private hasKey = false;
-  private lastReport: AiReport | null = null;
+  private lastRulesReport: AiReport | null = null;
+  private lastAiReport: AiReport | null = null;
   private readonly startMs = Date.now();
 
   constructor() {
     // Dev aid: `?mockReport` pre-seeds a saved Advisor report for UI work.
     if (typeof location !== "undefined" && new URLSearchParams(location.search).has("mockReport")) {
-      this.lastReport = mockReport(this.settings.mockProfile, this.profile, "rules-v1", "rules");
+      this.lastRulesReport = mockReport(this.settings.mockProfile, this.profile, "rules-v1", "rules");
+      // `?mockReport=ai` also seeds a saved AI explanation.
+      if (new URLSearchParams(location.search).get("mockReport") === "ai") {
+        this.lastAiReport = mockReport(this.settings.mockProfile, this.profile, this.settings.claudeModel, "claude");
+      }
     }
   }
 
@@ -171,14 +176,16 @@ export class MockBackend implements Backend {
         return null;
       case "preview_ai_payload":
         return mockSummary(this.settings.mockProfile, this.profile);
+      case "get_last_rules_report":
+        return this.lastRulesReport;
       case "get_last_ai_report":
-        return this.lastReport;
+        return this.lastAiReport;
       case "run_diagnostics": {
         if (isInsufficientHistory(mockSummary(this.settings.mockProfile, this.profile))) {
           fail("insufficient_data", "Less than 1 hour of history.");
         }
-        this.lastReport = mockReport(this.settings.mockProfile, this.profile, "rules-v1", "rules");
-        return this.lastReport;
+        this.lastRulesReport = mockReport(this.settings.mockProfile, this.profile, "rules-v1", "rules");
+        return this.lastRulesReport;
       }
       case "list_local_models": {
         if (!isLoopbackUrl(this.settings.localAiUrl)) {
@@ -203,8 +210,8 @@ export class MockBackend implements Backend {
         // Simulate model latency; local models are slower.
         await new Promise((r) => setTimeout(r, (provider === "local" ? 8_000 : 4_000) + Math.random() * 3_000));
         const model = provider === "local" ? this.settings.localAiModel : this.settings.claudeModel;
-        this.lastReport = mockReport(this.settings.mockProfile, this.profile, model, provider);
-        return this.lastReport;
+        this.lastAiReport = mockReport(this.settings.mockProfile, this.profile, model, provider);
+        return this.lastAiReport;
       }
       default:
         fail("internal", `Unknown command: ${cmd}`);

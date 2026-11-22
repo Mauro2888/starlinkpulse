@@ -16,7 +16,8 @@ pub const API_BASE: &str = "https://api.anthropic.com";
 pub const API_VERSION: &str = "2026-10-21";
 pub const FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
 pub const MAX_TOKENS: u32 = 16_000;
-pub const TIMEOUT: Duration = Duration::from_secs(120);
+/// Non-streaming request timeout (large models with effort "medium" can take minutes).
+pub const TIMEOUT: Duration = Duration::from_secs(300);
 const RETRY_BACKOFF: Duration = Duration::from_secs(2);
 const MAX_FINDINGS: usize = 12;
 const MAX_ACTIONS: usize = 6;
@@ -32,7 +33,13 @@ Diagnose the connection and separate clearly between these root causes:
 - Local Wi-Fi: weak client signal (`weakestWifiSignalDbm`, roughly below -70 dBm is weak) or \
 in-home network problems, which do not show up as dish-side latency or drops.
 - Physical obstruction: `fractionObstructed`, outages caused by OBSTRUCTED, and (for dishes \
-without motors) a large alignment delta between the actual and the recommended orientation.
+without motors) a large aiming correction. `azimuthCorrectionDeg` and \
+`elevationCorrectionDeg` are the correction to APPLY (recommended minus actual): a positive \
+azimuth correction means rotate the dish clockwise seen from above, negative means \
+counter-clockwise; a positive elevation correction means tilt up, negative means tilt down. \
+Use these signs exactly; never invert them.
+- `isSimulated: true` means the data comes from the built-in simulator, not a real dish; \
+say so in the headline.
 - Starlink network or congestion: high latency or drop rate in evening hours (`worstHours`, \
 local time), NO_DOWNLINK / NO_PINGS / NO_SCHEDULE outages without obstruction. \
 `throttledMinutes` counts minutes with POLICY_LIMIT, which means the service plan is being \
@@ -56,10 +63,18 @@ recommend actions that need data you do not have.
 - Respond only with the JSON object required by the output schema.";
 
 /// True for models that support server-side refusal fallbacks (Opus/Sonnet 5.x, Fable).
+/// Models known to support the server-side fallback beta (explicit allow-list).
+pub const FALLBACK_MODELS: &[&str] = &[
+    "claude-opus-5-5",
+    "claude-opus-5",
+    "claude-sonnet-5-5",
+    "claude-fable-5-2",
+    "claude-fable-5-1",
+];
+
+/// True for models on [`FALLBACK_MODELS`].
 pub fn supports_fallback(model: &str) -> bool {
-    model.starts_with("claude-opus-5")
-        || model.starts_with("claude-sonnet-5")
-        || model.starts_with("claude-fable-")
+    FALLBACK_MODELS.contains(&model)
 }
 
 /// JSON schema of the model output (`AiReport` minus the fields added by the backend).
@@ -150,8 +165,14 @@ fn sanitize(mut out: AiOutput) -> Result<AiOutput, AppError> {
     if out.headline.is_empty() {
         return Err(AppError::AiInvalidResponse("empty headline".into()));
     }
-    out.findings.truncate(MAX_FINDINGS);
-    for f in &mut out.findings {
+    out.findings = sanitize_findings(std::mem::take(&mut out.findings));
+    Ok(out)
+}
+
+/// Limits and clips findings (count, text length, actions); drops untitled ones.
+pub fn sanitize_findings(mut findings: Vec<AiFinding>) -> Vec<AiFinding> {
+    findings.truncate(MAX_FINDINGS);
+    for f in &mut findings {
         f.title = clip(&f.title);
         f.detail = clip(&f.detail);
         f.actions = f
@@ -162,8 +183,8 @@ fn sanitize(mut out: AiOutput) -> Result<AiOutput, AppError> {
             .take(MAX_ACTIONS)
             .collect();
     }
-    out.findings.retain(|f| !f.title.is_empty());
-    Ok(out)
+    findings.retain(|f| !f.title.is_empty());
+    findings
 }
 
 /// Parses a 200 response body.
@@ -420,6 +441,16 @@ mod tests {
                 .is_none()
         );
         assert!(!supports_fallback("claude-haiku-5-5"));
+        // Explicit allow-list: unknown variants get no beta header.
+        assert!(supports_fallback("claude-opus-5"));
+        assert!(supports_fallback("claude-fable-5-1"));
+        assert!(!supports_fallback("claude-opus-5-9-preview"));
+        assert!(!supports_fallback("claude-sonnet-5"));
+        assert!(
+            build_body("claude-sonnet-5", "x")
+                .get("fallbacks")
+                .is_none()
+        );
     }
 
     #[test]

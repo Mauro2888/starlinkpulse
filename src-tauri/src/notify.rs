@@ -29,7 +29,16 @@ pub enum NotificationKind {
     Reboot,
     FirmwareUpdate,
     DataCap,
+    /// The real dish stopped answering the app (power loss, cable, network path).
+    Unreachable,
     Test,
+}
+
+/// Marks alerts whose delivery enables a later recovery message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlertTag {
+    OutageStart,
+    UnreachableStart,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -39,6 +48,8 @@ pub struct Notification {
     pub body: String,
     /// Recovery messages pair with an already-sent alert and skip the cooldown.
     pub bypass_cooldown: bool,
+    /// Set on alerts that have a matching recovery message.
+    pub tag: Option<AlertTag>,
 }
 
 impl Notification {
@@ -48,9 +59,20 @@ impl Notification {
             title: title.to_string(),
             body: body.into(),
             bypass_cooldown: false,
+            tag: None,
+        }
+    }
+
+    fn recovery(kind: NotificationKind, title: &str, body: impl Into<String>) -> Self {
+        Self {
+            bypass_cooldown: true,
+            ..Self::new(kind, title, body)
         }
     }
 }
+
+/// The real dish must be unreachable this long before the user is told.
+pub const UNREACHABLE_MIN_MS: i64 = 2 * 60_000;
 
 /// What the dish reported in one poll.
 #[derive(Debug, Clone, Default)]
@@ -59,6 +81,8 @@ pub struct Observation<'a> {
     pub snapshot: Option<&'a TelemetrySnapshot>,
     /// `outage.cause` from get_status, if the dish reports an outage in progress.
     pub outage_cause: Option<&'a str>,
+    /// `deviceInfo.bootcount` (a change means the dish rebooted).
+    pub bootcount: Option<u64>,
 }
 
 /// Plain-language explanation of an outage cause.
@@ -105,12 +129,18 @@ pub struct NotificationEngine {
     initialized: bool,
     outage_start_ms: Option<i64>,
     outage_cause: Option<String>,
-    outage_notified: bool,
+    /// Outage alert produced (attempted) / actually delivered.
+    outage_alerted: bool,
+    outage_delivered: bool,
     obstructed: bool,
     thermal: bool,
     throttled: bool,
     last_uptime: Option<(u64, i64)>,
+    last_bootcount: Option<u64>,
     update_pending: bool,
+    unreachable_since: Option<i64>,
+    unreachable_alerted: bool,
+    unreachable_delivered: bool,
     /// Highest data-cap level already notified in the current cycle: (cycle_start, 80|100).
     data_cap: Option<(i64, u8)>,
     last_sent: HashMap<NotificationKind, i64>,
@@ -122,10 +152,78 @@ impl NotificationEngine {
     }
 
     /// Forget all state (new connection): the next observation is a baseline again.
+    /// New connection: transition baselines restart (no startup notifications), but reboot
+    /// markers, cooldowns, the unreachable state and the data-cap level survive, so a reboot or
+    /// a lost dish during the reconnect is still reported.
     pub fn reset(&mut self) {
-        let data_cap = self.data_cap;
-        *self = Self::default();
-        self.data_cap = data_cap;
+        let kept = Self {
+            last_uptime: self.last_uptime,
+            last_bootcount: self.last_bootcount,
+            last_sent: std::mem::take(&mut self.last_sent),
+            data_cap: self.data_cap,
+            unreachable_since: self.unreachable_since,
+            unreachable_alerted: self.unreachable_alerted,
+            unreachable_delivered: self.unreachable_delivered,
+            ..Self::default()
+        };
+        *self = kept;
+    }
+
+    /// Reboot detection from uptime drop or bootcount change; updates the markers.
+    fn check_reboot(
+        &mut self,
+        uptime: Option<u64>,
+        bootcount: Option<u64>,
+        now: i64,
+    ) -> Option<Notification> {
+        let mut rebooted = matches!((self.last_bootcount, bootcount), (Some(a), Some(b)) if a != b);
+        if let (Some(u), Some((prev, prev_ms))) = (uptime, self.last_uptime) {
+            let expected = prev as i64 + (now - prev_ms) / 1000;
+            rebooted |= (u as i64) + REBOOT_SLACK_S < expected;
+        }
+        if let Some(u) = uptime {
+            self.last_uptime = Some((u, now));
+        }
+        if bootcount.is_some() {
+            self.last_bootcount = bootcount;
+        }
+        rebooted.then(|| {
+            Notification::new(
+                NotificationKind::Reboot,
+                "Dish restarted",
+                match uptime {
+                    Some(u) => format!(
+                        "The dish rebooted (up for {}).",
+                        fmt_duration(u as i64 * 1000)
+                    ),
+                    None => "The dish rebooted.".to_string(),
+                },
+            )
+        })
+    }
+
+    /// The real dish did not answer (status poll or connect failed).
+    pub fn observe_unreachable(&mut self, now_ms: i64) -> Vec<Notification> {
+        // Only a dish seen earlier in this run can be "lost" (no alert when the app simply
+        // runs away from any dish).
+        if self.last_uptime.is_none() && self.last_bootcount.is_none() {
+            return Vec::new();
+        }
+        let since = *self.unreachable_since.get_or_insert(now_ms);
+        if self.unreachable_alerted || now_ms - since < UNREACHABLE_MIN_MS {
+            return Vec::new();
+        }
+        self.unreachable_alerted = true;
+        let mut n = Notification::new(
+            NotificationKind::Unreachable,
+            "Starlink dish not reachable",
+            format!(
+                "StarlinkPulse has not reached the dish for {}. Check its power and cable.",
+                fmt_duration(now_ms - since)
+            ),
+        );
+        n.tag = Some(AlertTag::UnreachableStart);
+        vec![n]
     }
 
     /// Restores the persisted data-cap level for a cycle.
@@ -167,6 +265,25 @@ impl NotificationEngine {
             || snap.alerts.iter().any(|a| a == "installPending");
 
         let mut out = Vec::new();
+        // The dish answers again.
+        if let Some(since) = self.unreachable_since.take() {
+            if self.unreachable_delivered {
+                out.push(Notification::recovery(
+                    NotificationKind::Unreachable,
+                    "Starlink dish reachable again",
+                    format!(
+                        "The dish answers again after {}.",
+                        fmt_duration(now - since)
+                    ),
+                ));
+            }
+            self.unreachable_alerted = false;
+            self.unreachable_delivered = false;
+        }
+        // Reboot markers survive reconnects, so this also works on the first observation.
+        if let Some(n) = self.check_reboot(snap.uptime_s, obs.bootcount, now) {
+            out.push(n);
+        }
         if !self.initialized {
             // Baseline only.
             self.initialized = true;
@@ -174,13 +291,12 @@ impl NotificationEngine {
                 self.outage_start_ms = Some(now);
                 self.outage_cause = obs.outage_cause.map(str::to_owned);
                 // An outage already running at startup is not announced.
-                self.outage_notified = false;
+                self.outage_alerted = true;
             }
             self.obstructed = obstructed;
             self.thermal = thermal;
             self.throttled = throttled;
             self.update_pending = update_pending;
-            self.last_uptime = snap.uptime_s.map(|u| (u, now));
             return out;
         }
 
@@ -190,28 +306,30 @@ impl NotificationEngine {
             if let Some(c) = obs.outage_cause {
                 self.outage_cause = Some(c.to_string());
             }
-            if !self.outage_notified && now - start > OUTAGE_MIN_MS {
-                self.outage_notified = true;
-                out.push(Notification::new(
+            if !self.outage_alerted && now - start > OUTAGE_MIN_MS {
+                self.outage_alerted = true;
+                let mut n = Notification::new(
                     NotificationKind::Outage,
                     "Starlink connection lost",
                     format!(
                         "No internet: {}.",
                         plain_cause(self.outage_cause.as_deref())
                     ),
-                ));
+                );
+                n.tag = Some(AlertTag::OutageStart);
+                out.push(n);
             }
         } else if let Some(start) = self.outage_start_ms.take() {
-            if self.outage_notified {
-                let mut n = Notification::new(
+            // Recovery only pairs with an alert the user actually saw.
+            if self.outage_delivered {
+                out.push(Notification::recovery(
                     NotificationKind::Outage,
                     "Starlink connection restored",
                     format!("Back online after {}.", fmt_duration(now - start)),
-                );
-                n.bypass_cooldown = true;
-                out.push(n);
+                ));
             }
-            self.outage_notified = false;
+            self.outage_alerted = false;
+            self.outage_delivered = false;
             self.outage_cause = None;
         }
 
@@ -252,23 +370,6 @@ impl NotificationEngine {
             });
         }
         self.throttled = throttled;
-
-        if let Some(uptime) = snap.uptime_s {
-            if let Some((prev, prev_ms)) = self.last_uptime {
-                let expected = prev as i64 + (now - prev_ms) / 1000;
-                if (uptime as i64) + REBOOT_SLACK_S < expected {
-                    out.push(Notification::new(
-                        NotificationKind::Reboot,
-                        "Dish restarted",
-                        format!(
-                            "The dish rebooted (up for {}).",
-                            fmt_duration(uptime as i64 * 1000)
-                        ),
-                    ));
-                }
-            }
-            self.last_uptime = Some((uptime, now));
-        }
 
         if update_pending && !self.update_pending {
             out.push(Notification::new(
@@ -346,6 +447,7 @@ impl NotificationEngine {
                 NotificationKind::Reboot => settings.reboot,
                 NotificationKind::FirmwareUpdate => settings.firmware_update,
                 NotificationKind::DataCap => settings.data_cap,
+                NotificationKind::Unreachable => settings.outage,
                 NotificationKind::Test => true,
             };
             if !allowed || quiet {
@@ -359,6 +461,11 @@ impl NotificationEngine {
                 continue;
             }
             self.last_sent.insert(n.kind, now_ms);
+            match n.tag {
+                Some(AlertTag::OutageStart) => self.outage_delivered = true,
+                Some(AlertTag::UnreachableStart) => self.unreachable_delivered = true,
+                None => {}
+            }
             out.push(n);
         }
         out
@@ -389,6 +496,7 @@ mod tests {
             now_ms: now,
             snapshot: Some(s),
             outage_cause: cause,
+            bootcount: None,
         })
         .into_iter()
         .map(|n| n.kind)
@@ -430,9 +538,12 @@ mod tests {
             now_ms: 36_000,
             snapshot: Some(&up(&down, 33)),
             outage_cause: Some("OBSTRUCTED"),
+            bootcount: None,
         });
         assert_eq!(n.len(), 1);
         assert!(n[0].body.contains("blocking the dish's view"));
+        // The user saw the alert, so a recovery message will follow.
+        assert_eq!(deliver_all(&mut e, n, 36_000, 12).len(), 1);
         assert!(
             observe(&mut e, &up(&down, 40), 40_000, Some("OBSTRUCTED")).is_empty(),
             "once"
@@ -441,6 +552,7 @@ mod tests {
             now_ms: 3_000 + 125_000,
             snapshot: Some(&up(&s, 125)),
             outage_cause: None,
+            bootcount: None,
         });
         assert_eq!(back.len(), 1);
         assert!(back[0].bypass_cooldown);
@@ -614,5 +726,127 @@ mod tests {
             e.filter(vec![n(NotificationKind::Outage)], &st, 0, 12, false)
                 .is_empty()
         );
+    }
+
+    fn deliver_all(
+        e: &mut NotificationEngine,
+        c: Vec<Notification>,
+        now: i64,
+        hour: u8,
+    ) -> Vec<Notification> {
+        e.filter(c, &NotificationSettings::default(), now, hour, false)
+    }
+
+    #[test]
+    fn reboot_detected_across_reconnect() {
+        let mut e = NotificationEngine::new();
+        let s = snap(); // uptime 1000
+        observe(&mut e, &s, 0, None);
+        // Connection drops, session restarts: engine reset keeps the reboot markers.
+        e.reset();
+        let mut r = snap();
+        r.uptime_s = Some(40);
+        assert_eq!(
+            observe(&mut e, &r, 120_000, None),
+            vec![NotificationKind::Reboot]
+        );
+        // Bootcount change alone also counts (e.g. uptime unknown).
+        let mut e = NotificationEngine::new();
+        let mut no_up = snap();
+        no_up.uptime_s = None;
+        let obs = |e: &mut NotificationEngine, b: u64, t: i64| {
+            e.observe(&Observation {
+                now_ms: t,
+                snapshot: Some(&no_up),
+                outage_cause: None,
+                bootcount: Some(b),
+            })
+        };
+        assert!(obs(&mut e, 11, 0).is_empty());
+        e.reset();
+        assert_eq!(obs(&mut e, 12, 60_000)[0].kind, NotificationKind::Reboot);
+        assert!(obs(&mut e, 12, 63_000).is_empty());
+    }
+
+    #[test]
+    fn unreachable_after_two_minutes_and_back_online() {
+        let mut e = NotificationEngine::new();
+        // Never seen a real dish: no alert at all.
+        assert!(e.observe_unreachable(0).is_empty());
+        assert!(e.observe_unreachable(10 * 60_000).is_empty());
+        let mut e = NotificationEngine::new();
+        observe(&mut e, &snap(), 0, None);
+        assert!(e.observe_unreachable(10_000).is_empty());
+        assert!(
+            e.observe_unreachable(10_000 + UNREACHABLE_MIN_MS - 1)
+                .is_empty()
+        );
+        let c = e.observe_unreachable(10_000 + UNREACHABLE_MIN_MS);
+        assert_eq!(c[0].kind, NotificationKind::Unreachable);
+        assert_eq!(deliver_all(&mut e, c, 200_000, 12).len(), 1);
+        assert!(e.observe_unreachable(400_000).is_empty(), "once");
+        e.reset(); // reconnect attempt
+        let back = observe(&mut e, &up(&snap(), 600), 600_000, None);
+        assert_eq!(back, vec![NotificationKind::Unreachable]);
+    }
+
+    #[test]
+    fn no_recovery_for_suppressed_alerts() {
+        let quiet = NotificationSettings {
+            quiet_start_hour: Some(22),
+            quiet_end_hour: Some(7),
+            ..Default::default()
+        };
+        // Outage alert suppressed by quiet hours -> no "restored" later.
+        let mut e = NotificationEngine::new();
+        let s = snap();
+        observe(&mut e, &s, 0, None);
+        let mut down = up(&s, 3);
+        down.pop_ping_latency_ms = None;
+        down.pop_ping_drop_rate = Some(1.0);
+        observe(&mut e, &down, 3_000, Some("NO_PINGS"));
+        let alert = e.observe(&Observation {
+            now_ms: 40_000,
+            snapshot: Some(&up(&down, 37)),
+            outage_cause: Some("NO_PINGS"),
+            bootcount: None,
+        });
+        assert_eq!(alert.len(), 1);
+        assert!(e.filter(alert, &quiet, 40_000, 23, false).is_empty());
+        assert!(
+            observe(&mut e, &up(&s, 60), 63_000, None).is_empty(),
+            "no recovery"
+        );
+        // Unreachable alert suppressed -> no "reachable again".
+        let mut e = NotificationEngine::new();
+        observe(&mut e, &snap(), 0, None);
+        e.observe_unreachable(1_000);
+        let c = e.observe_unreachable(1_000 + UNREACHABLE_MIN_MS);
+        assert!(e.filter(c, &quiet, 200_000, 2, false).is_empty());
+        assert!(observe(&mut e, &up(&snap(), 300), 300_000, None).is_empty());
+        // Delivered outage alert -> recovery is sent.
+        let mut e = NotificationEngine::new();
+        observe(&mut e, &s, 0, None);
+        observe(&mut e, &down, 3_000, Some("NO_PINGS"));
+        let alert = e.observe(&Observation {
+            now_ms: 40_000,
+            snapshot: Some(&up(&down, 37)),
+            outage_cause: Some("NO_PINGS"),
+            bootcount: None,
+        });
+        assert_eq!(deliver_all(&mut e, alert, 40_000, 12).len(), 1);
+        assert_eq!(
+            observe(&mut e, &up(&s, 60), 63_000, None),
+            vec![NotificationKind::Outage]
+        );
+    }
+
+    #[test]
+    fn cooldowns_survive_reset() {
+        let mut e = NotificationEngine::new();
+        let n = Notification::new(NotificationKind::Reboot, "t", "b");
+        assert_eq!(deliver_all(&mut e, vec![n.clone()], 0, 12).len(), 1);
+        e.reset();
+        assert!(deliver_all(&mut e, vec![n], 60_000, 12).is_empty());
     }
 }
