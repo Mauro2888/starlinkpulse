@@ -388,7 +388,7 @@ function ErrorPanel({
           )}
           {c.action === "retry" && (
             <Button size="sm" onClick={onRetry}>
-              <RefreshCw aria-hidden /> Try again
+              <RefreshCw aria-hidden /> {t("Try again")}
             </Button>
           )}
           {hasReport && (
@@ -459,16 +459,18 @@ export function PreviewDialog({
     <AlertDialog open={payload !== null} onOpenChange={(open) => !open && onCancel()}>
       <AlertDialogContent
         onCloseAutoFocus={onCloseAutoFocus}
-        className="max-h-[90vh] overflow-y-auto data-[size=default]:max-w-[calc(100vw-2rem)] data-[size=default]:sm:max-w-lg"
+        className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden data-[size=default]:max-w-[calc(100vw-2rem)] data-[size=default]:sm:max-w-lg"
       >
         {payload && (
           <>
-            <AlertDialogHeader>
+            <AlertDialogHeader className="shrink-0">
               <AlertDialogTitle>
                 {d.kind === "claude" ? t("Send this summary to Claude?") : t("Send this summary to your local model?")}
               </AlertDialogTitle>
               <AlertDialogDescription>{privacyNote(d)}</AlertDialogDescription>
             </AlertDialogHeader>
+            {/* Only the body scrolls: header and the Send / Don't send buttons stay visible. */}
+            <div className="-mx-4 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4">
             {payload.isSimulated && (
               <p role="alert" className="flex items-start gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs ring-1 ring-warning/40">
                 <FlaskConical className="mt-px size-3.5 shrink-0 text-warning" aria-hidden />
@@ -502,7 +504,7 @@ export function PreviewDialog({
               <dt className="text-muted-foreground">{t("Built-in findings")}</dt>
               <dd className="num text-right">{payload.ruleFindings.length}</dd>
             </dl>
-            <details open className="group rounded-lg ring-1 ring-border">
+            <details open className="group shrink-0 rounded-lg ring-1 ring-border">
               <summary className="flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium outline-none select-none focus-visible:ring-2 focus-visible:ring-ring">
                 <ShieldCheck className="size-3.5 text-good" aria-hidden />
                 {t("Exact data to be sent (JSON)")}
@@ -510,12 +512,13 @@ export function PreviewDialog({
               <pre
                 tabIndex={0}
                 aria-label={t("Payload JSON")}
-                className="num max-h-56 overflow-auto border-t border-border px-3 py-2 text-[0.6875rem] leading-relaxed text-muted-foreground"
+                className="num max-h-48 overflow-auto border-t border-border px-3 py-2 text-[0.6875rem] leading-relaxed text-muted-foreground"
               >
                 {JSON.stringify(payload, null, 2)}
               </pre>
             </details>
-            <AlertDialogFooter>
+            </div>
+            <AlertDialogFooter className="shrink-0">
               <AlertDialogCancel>{t("Don't send")}</AlertDialogCancel>
               <AlertDialogAction onClick={onConfirm}>{t("Send and analyze")}</AlertDialogAction>
             </AlertDialogFooter>

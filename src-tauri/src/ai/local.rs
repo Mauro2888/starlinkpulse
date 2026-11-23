@@ -10,7 +10,7 @@ use super::anthropic::{AiOutput, SYSTEM_PROMPT, output_schema, parse_output};
 use crate::error::AppError;
 use crate::models::LocalAiKind;
 
-pub const TIMEOUT: Duration = Duration::from_secs(180);
+pub const TIMEOUT: Duration = Duration::from_secs(300);
 const LIST_TIMEOUT: Duration = Duration::from_secs(10);
 const SCHEMA_NAME: &str = "starlink_report";
 
@@ -19,6 +19,9 @@ pub fn ollama_body(model: &str, user_text: &str) -> Value {
     json!({
         "model": model,
         "stream": false,
+        // Thinking models (qwen3, deepseek-r1, ...) can reason for minutes before the JSON;
+        // the rule findings are already computed, so plain answering is enough.
+        "think": false,
         "format": output_schema(),
         "messages": [
             { "role": "system", "content": SYSTEM_PROMPT },
@@ -234,15 +237,18 @@ impl LocalClient {
                 openai_body(model, user_text),
             ),
         };
-        let resp = self
-            .http
-            .post(url)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| self.unreachable(e.is_timeout()))?;
-        let status = resp.status().as_u16();
-        let text = self.body(resp).await?;
+        let (mut status, mut text) = self.post(url.clone(), &body).await?;
+        // Older Ollama versions or models may reject the `think` flag: retry once without it.
+        if self.kind == LocalAiKind::Ollama
+            && (400..500).contains(&status)
+            && error_message(&text).is_some_and(|m| m.to_lowercase().contains("think"))
+        {
+            let mut plain = body;
+            if let Some(o) = plain.as_object_mut() {
+                o.remove("think");
+            }
+            (status, text) = self.post(url, &plain).await?;
+        }
         tracing::debug!(status, "local AI response");
         if !(200..300).contains(&status) {
             return Err(self.map_status(status, &text, model));
@@ -251,6 +257,18 @@ impl LocalClient {
             LocalAiKind::Ollama => parse_ollama(&text),
             LocalAiKind::OpenaiCompatible => parse_openai(&text),
         }
+    }
+
+    async fn post(&self, url: reqwest::Url, body: &Value) -> Result<(u16, String), AppError> {
+        let resp = self
+            .http
+            .post(url)
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| self.unreachable(e.is_timeout()))?;
+        let status = resp.status().as_u16();
+        Ok((status, self.body(resp).await?))
     }
 
     /// Models available on the server.
@@ -431,6 +449,23 @@ pub(crate) mod tests {
         assert!(req.starts_with("POST /api/chat "));
         assert!(req.contains("\"stream\":false"));
         assert!(!req.to_lowercase().contains("authorization"), "no key sent");
+        assert!(req.contains("\"think\":false"), "thinking disabled");
+    }
+
+    #[tokio::test]
+    async fn ollama_retries_without_think_when_rejected() {
+        let ok = json!({"message": {"content": output_json()}, "done_reason": "stop"}).to_string();
+        let (url, seen) = server(vec![
+            (400, r#"{"error":"invalid option: think"}"#.into()),
+            (200, ok),
+        ])
+        .await;
+        let c = LocalClient::new(&url, LocalAiKind::Ollama).unwrap();
+        c.analyze("old-model", "payload").await.unwrap();
+        let reqs = seen.lock().unwrap().clone();
+        assert_eq!(reqs.len(), 2);
+        assert!(reqs[0].contains("\"think\":false"));
+        assert!(!reqs[1].contains("\"think\""));
     }
 
     #[tokio::test]
