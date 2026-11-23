@@ -3,6 +3,7 @@ import { useCapabilities, useConnection, useSettings, useTelemetry } from "@/hoo
 import { useNow } from "@/hooks/use-now";
 import { LiveView } from "@/components/live/live-view";
 import { isTauri } from "@/lib/api";
+import { WifiCard } from "@/components/live/wifi-card";
 
 // The obstruction map (canvas + geometry) and the guided alignment overlay load on demand.
 const SkySection = lazy(() =>
@@ -44,6 +45,7 @@ export function LiveTab() {
         mockMode={settings?.mockMode ?? null}
         battery={settings?.battery ?? null}
         onStartGuidedAlignment={() => setAligning(true)}
+        wifiSlot={capabilities?.hasRouter || connection?.routerAvailable ? <WifiCard /> : null}
         skySlot={
           capabilities?.hasObstructionMap ? (
             <Suspense fallback={null}>

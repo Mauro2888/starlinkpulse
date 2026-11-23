@@ -10,7 +10,7 @@
 
 use serde_json::Value;
 
-use super::{DeviceInfo, DishHistory, DishStatus, WifiClientInfo};
+use super::{DeviceInfo, DeviceName, DishHistory, DishStatus, WifiClientInfo};
 use crate::error::ClientError;
 use crate::models::{
     ActuatorSupport, AlignmentStats, DishEvent, ObstructionMap, ObstructionStats, SnowMeltMode,
@@ -397,13 +397,15 @@ pub fn parse_obstruction_map(m: &Value) -> Result<ObstructionMap, ClientError> {
 // Router: wifi_get_clients
 // ---------------------------------------------------------------------------
 
-/// Parses the body of `wifiGetClients`, copying only whitelisted non-PII fields.
+/// Parses the body of `wifiGetClients`, copying only whitelisted fields (the name is kept
+/// as a redacted, never-serialized [`DeviceName`]).
 pub fn parse_wifi_clients(body: &Value) -> Vec<WifiClientInfo> {
     body.get("clients")
         .and_then(Value::as_array)
         .map(|arr| {
             arr.iter()
                 .map(|c| WifiClientInfo {
+                    name: string(c.get("name")).map(DeviceName),
                     iface: string(c.get("iface")),
                     role: string(c.get("role")),
                     // 0 means "not reported" (wired / mesh entries).
@@ -416,6 +418,12 @@ pub fn parse_wifi_clients(body: &Value) -> Vec<WifiClientInfo> {
                     tx_rate_mbps: num(path(c, &["txStats", "rateMbps"])),
                     associated_time_s: uint(c.get("associatedTimeS")),
                     hops_from_controller: uint(c.get("hopsFromController")).map(|n| n as u32),
+                    rx_bytes: uint(path(c, &["rxStats", "bytes"])),
+                    tx_bytes: uint(path(c, &["txStats", "bytes"])),
+                    rx_throughput_mbps: num(path(c, &["rxStats", "throughputMbpsLast15sAvg"]))
+                        .map(|v| v.max(0.0)),
+                    tx_throughput_mbps: num(path(c, &["txStats", "throughputMbpsLast15sAvg"]))
+                        .map(|v| v.max(0.0)),
                 })
                 .collect()
         })
@@ -619,6 +627,13 @@ mod tests {
         assert_eq!(clients.len(), 12);
         assert!(clients.iter().any(|c| c.signal_strength_dbm.is_none()));
         assert_eq!(super::super::weakest_signal_dbm(&clients), Some(-91.0));
+        let c = &clients[1];
+        assert_eq!(c.rx_bytes, Some(56_556_186));
+        assert_eq!(c.tx_bytes, Some(3_490_366));
+        assert_eq!(c.rx_rate_mbps, Some(1080.0));
+        assert!((c.rx_throughput_mbps.unwrap() - 0.0758).abs() < 1e-9);
+        let neg = json!({ "clients": [{ "txStats": { "throughputMbpsLast15sAvg": -0.5 } }] });
+        assert_eq!(parse_wifi_clients(&neg)[0].tx_throughput_mbps, Some(0.0));
     }
 
     #[test]
@@ -667,6 +682,9 @@ mod tests {
         let out = serde_json::to_string(&parsed).unwrap();
         assert!(!out.contains("Phone") && !out.contains("\"aa\""));
         assert_eq!(parsed[0].signal_strength_dbm, Some(-50.0));
+        // The name stays in memory for the live UI but is redacted in Debug output.
+        assert_eq!(parsed[0].name, Some(DeviceName("Phone".into())));
+        assert!(!format!("{parsed:?}").contains("Phone"));
     }
 
     #[test]

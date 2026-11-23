@@ -17,6 +17,7 @@ import { mockReport, mockSummary } from "@/lib/mock/advisor";
 import { mockObstructionMap } from "@/lib/mock/obstruction";
 import { mockUptime, mockUsage } from "@/lib/mock/usage";
 import { MockLocations, mockEnergy, mockTimeOfDay } from "@/lib/mock/v11";
+import { mockLanInfo, mockSupportReport, mockToken, mockWifi } from "@/lib/mock/v12";
 import { isInsufficientHistory, isLoopbackUrl } from "@/lib/advisor";
 import type { AiReport, SnowMeltMode } from "@/types/models";
 
@@ -56,6 +57,7 @@ export const DEFAULT_SETTINGS: Settings = {
   language: "system",
   activeLocation: null,
   battery: null,
+  lanDashboard: { enabled: false, port: 8787, token: "k7qf2m" },
 };
 
 function fail(kind: CommandError["kind"], message: string): never {
@@ -79,7 +81,10 @@ function loadSettings(): Settings {
   }
   try {
     const raw = globalThis.localStorage?.getItem(SETTINGS_KEY);
-    if (raw) return { ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Partial<Settings>) };
+    if (raw) {
+      const saved = JSON.parse(raw) as Partial<Settings>;
+      return { ...DEFAULT_SETTINGS, ...saved, lanDashboard: { ...DEFAULT_SETTINGS.lanDashboard, ...saved.lanDashboard } };
+    }
   } catch {
     // ignore corrupt storage
   }
@@ -281,6 +286,25 @@ export class MockBackend implements Backend {
         this.lastAiReport = mockReport(this.settings.mockProfile, this.profile, model, provider);
         return this.lastAiReport;
       }
+      case "get_wifi_devices":
+        if (this.offline) fail("offline", "The router is not reachable.");
+        return mockWifi(this.profile);
+      case "get_support_report":
+        return mockSupportReport(this.profile, this.settings.mockProfile);
+      case "export_support_report": {
+        // Browser mock: download the file client-side.
+        const blob = new Blob([mockSupportReport(this.profile, this.settings.mockProfile)], { type: "text/markdown" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "starlinkpulse-support-report.md";
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        return "~/Downloads/starlinkpulse-support-report.md";
+      }
+      case "get_lan_dashboard_info":
+        return mockLanInfo(this.settings.lanDashboard);
+      case "regenerate_lan_token":
+        return this.updateSettings({ ...this.settings, lanDashboard: { ...this.settings.lanDashboard, token: mockToken() } });
       default:
         fail("internal", `Unknown command: ${cmd}`);
     }
@@ -323,6 +347,10 @@ export class MockBackend implements Backend {
     if (next.dataCapGb !== null && !(next.dataCapGb > 0)) fail("invalid_input", "Data cap must be a positive number of GB.");
     if (!(Number.isInteger(next.billingCycleDay) && next.billingCycleDay >= 1 && next.billingCycleDay <= 28)) {
       fail("invalid_input", "Billing cycle day must be between 1 and 28.");
+    }
+    const port = next.lanDashboard?.port;
+    if (!(Number.isInteger(port) && port >= 1024 && port <= 65535)) {
+      fail("invalid_input", "Port must be between 1024 and 65535.");
     }
     if (!(next.livePollIntervalS >= 1 && next.livePollIntervalS <= 60)) {
       fail("invalid_input", "Poll interval must be between 1 and 60 seconds.");

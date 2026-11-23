@@ -9,6 +9,7 @@ pub mod export;
 pub mod i18n;
 pub mod insights;
 pub mod keyring_store;
+pub mod lan;
 pub mod models;
 pub mod notify;
 pub mod readiness;
@@ -17,11 +18,13 @@ pub mod service;
 pub mod settings;
 pub mod state;
 pub mod storage;
+pub mod support_report;
 pub mod time;
 pub mod tray;
 pub mod updater;
 pub mod uptime;
 pub mod usage;
+pub mod wifi;
 pub mod write_denials;
 
 use std::sync::Arc;
@@ -90,6 +93,9 @@ pub fn run() {
                 *slot = Some(login_item);
             }
             let sink: Arc<dyn EventSink> = Arc::new(tray::setup(app.handle())?);
+            // Read-only LAN dashboard (opt-in; a bind error is reported, never fatal).
+            let lan_state = state.clone();
+            tauri::async_runtime::spawn(async move { lan::apply(&lan_state).await });
             tauri::async_runtime::spawn(service::run(state, sink));
             Ok(())
         })
@@ -141,6 +147,11 @@ pub fn run() {
             commands::get_uptime_stats,
             commands::get_data_usage,
             commands::send_test_notification,
+            commands::get_wifi_devices,
+            commands::get_support_report,
+            commands::export_support_report,
+            commands::get_lan_dashboard_info,
+            commands::regenerate_lan_token,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

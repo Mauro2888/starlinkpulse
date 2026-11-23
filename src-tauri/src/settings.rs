@@ -125,6 +125,18 @@ pub fn validate(mut s: Settings) -> Result<Settings, AppError> {
             "localAiModel is not a valid model name".into(),
         ));
     }
+    let lan = &s.lan_dashboard;
+    if lan.port < 1024 {
+        return Err(AppError::InvalidInput(
+            "lanDashboard.port must be between 1024 and 65535".into(),
+        ));
+    }
+    // Empty = not generated yet (filled at startup); otherwise a generated access code.
+    if !lan.token.is_empty() && !crate::lan::is_valid_token(&lan.token) {
+        return Err(AppError::InvalidInput(
+            "lanDashboard.token is not a valid access code".into(),
+        ));
+    }
     s.claude_model = s.claude_model.trim().to_string();
     if s.claude_model.is_empty()
         || s.claude_model.len() > 100
@@ -348,6 +360,35 @@ mod tests {
         // Older settings files without the field get the platform default.
         let s: Settings = serde_json::from_str(r#"{"readOnly": true}"#).unwrap();
         assert_eq!(s.close_to_tray, Settings::default().close_to_tray);
+    }
+
+    #[test]
+    fn lan_dashboard_defaults_and_validation() {
+        let d = Settings::default().lan_dashboard;
+        assert!(!d.enabled);
+        assert_eq!(d.port, 8787);
+        // Old settings files without the section, or with a partial one, get defaults.
+        let old: Settings = serde_json::from_str(r#"{"readOnly": true}"#).unwrap();
+        assert_eq!(old.lan_dashboard, d);
+        let partial: Settings =
+            serde_json::from_str(r#"{"lanDashboard": {"enabled": true}}"#).unwrap();
+        assert!(partial.lan_dashboard.enabled);
+        assert_eq!(partial.lan_dashboard.port, 8787);
+        let json = serde_json::to_value(Settings::default()).unwrap();
+        assert_eq!(json["lanDashboard"]["port"], 8787);
+        assert_eq!(json["lanDashboard"]["enabled"], false);
+        let bad = |f: fn(&mut Settings)| {
+            let mut s = Settings::default();
+            f(&mut s);
+            validate(s).is_err()
+        };
+        assert!(bad(|s| s.lan_dashboard.port = 80));
+        assert!(bad(|s| s.lan_dashboard.token = "abc".into()));
+        assert!(bad(|s| s.lan_dashboard.token = "abcde0".into()));
+        assert!(!bad(
+            |s| s.lan_dashboard.token = crate::lan::generate_token()
+        ));
+        assert!(!bad(|s| s.lan_dashboard.port = 65535));
     }
 
     #[test]

@@ -12,6 +12,7 @@ import type {
   DishCapabilities,
   DishEvent,
   HistoryPoint,
+  LanDashboardInfo,
   LocationStats,
   ObstructionMap,
   Settings,
@@ -20,6 +21,7 @@ import type {
   TimeOfDayStats,
   UpdateInfo,
   UptimeStats,
+  WifiDevices,
 } from "@/types/models";
 import { normalizeError } from "@/lib/errors";
 
@@ -61,6 +63,11 @@ export interface CommandMap {
   preview_ai_payload: { args: void; result: DiagnosticSummary };
   analyze_network_with_ai: { args: { payload: DiagnosticSummary }; result: AiReport };
   get_last_ai_report: { args: void; result: AiReport | null };
+  get_wifi_devices: { args: void; result: WifiDevices };
+  get_support_report: { args: void; result: string };
+  export_support_report: { args: void; result: string | null };
+  get_lan_dashboard_info: { args: void; result: LanDashboardInfo };
+  regenerate_lan_token: { args: void; result: Settings };
 }
 
 /** Event name -> payload type. */
@@ -178,6 +185,15 @@ export const api = {
   /** Sends exactly the previewed payload to the configured AI provider. */
   analyzeNetworkWithAi: (payload: DiagnosticSummary) => call("analyze_network_with_ai", { payload }),
   getLastAiReport: () => call("get_last_ai_report"),
+  /** Starlink router clients; names are display-only. */
+  getWifiDevices: () => call("get_wifi_devices"),
+  /** Anonymized Markdown report (no IDs, location or device names). */
+  getSupportReport: () => call("get_support_report"),
+  /** Native save dialog; returns the saved path, or null if cancelled. */
+  exportSupportReport: () => call("export_support_report"),
+  getLanDashboardInfo: () => call("get_lan_dashboard_info"),
+  /** New access code; returns the saved settings. */
+  regenerateLanToken: () => call("regenerate_lan_token"),
 } as const;
 
 export const events = {

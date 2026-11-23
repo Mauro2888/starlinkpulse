@@ -83,10 +83,25 @@ impl DishHistory {
     }
 }
 
-/// Wi-Fi client from the Starlink router, with all PII removed.
+/// Client name reported by the router. Display-only: it is skipped by `Serialize` and
+/// redacted in `Debug`, so it can never reach logs, files, the AI payload or the LAN page.
+#[derive(Clone, PartialEq, Eq)]
+pub struct DeviceName(pub String);
+
+impl std::fmt::Debug for DeviceName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DeviceName(<redacted>)")
+    }
+}
+
+/// Wi-Fi client from the Starlink router. No MAC/IP/IDs are copied; the name is kept in
+/// memory only (see [`DeviceName`]).
 #[derive(Debug, Clone, PartialEq, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WifiClientInfo {
+    /// In-memory only, never serialized.
+    #[serde(skip)]
+    pub name: Option<DeviceName>,
     /// e.g. "RF_5GHZ", "RF_2GHZ", "ETH".
     pub iface: Option<String>,
     /// e.g. "CLIENT", "REPEATER", "CONTROLLER".
@@ -101,6 +116,14 @@ pub struct WifiClientInfo {
     pub tx_rate_mbps: Option<f64>,
     pub associated_time_s: Option<u64>,
     pub hops_from_controller: Option<u32>,
+    /// Bytes received by the router from the client (= client upload).
+    pub rx_bytes: Option<u64>,
+    /// Bytes sent by the router to the client (= client download).
+    pub tx_bytes: Option<u64>,
+    /// Mbps received from the client, last 15 s average (>= 0).
+    pub rx_throughput_mbps: Option<f64>,
+    /// Mbps sent to the client, last 15 s average (>= 0).
+    pub tx_throughput_mbps: Option<f64>,
 }
 
 /// Weakest Wi-Fi signal among wireless clients (mesh/wired entries have no signal).

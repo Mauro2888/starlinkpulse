@@ -227,7 +227,9 @@ pub async fn update_settings(
     state: State<'_, Arc<AppState>>,
     settings: Settings,
 ) -> CmdResult<Settings> {
-    Ok(state.update_settings(settings).await?)
+    let saved = state.update_settings(settings).await?;
+    crate::lan::apply(state.inner()).await;
+    Ok(saved)
 }
 
 #[tauri::command]
@@ -580,6 +582,87 @@ pub async fn has_api_key() -> CmdResult<bool> {
 #[tauri::command]
 pub async fn delete_api_key() -> CmdResult<()> {
     blocking(keyring_store::delete_api_key).await
+}
+
+// ---- Phase 7: Wi-Fi devices, support report, LAN dashboard ----
+
+/// Starlink router clients for the live UI. Names are display-only (never logged/stored).
+pub async fn wifi_devices(state: &AppState) -> crate::models::WifiDevices {
+    let available = state.status.read().await.router_available;
+    if !available {
+        return crate::models::WifiDevices::default();
+    }
+    crate::models::WifiDevices {
+        available,
+        devices: crate::wifi::devices(&state.wifi_clients.read().await),
+        updated_ms: *state.wifi_updated_ms.read().await,
+    }
+}
+
+#[tauri::command]
+pub async fn get_wifi_devices(
+    state: State<'_, Arc<AppState>>,
+) -> CmdResult<crate::models::WifiDevices> {
+    Ok(wifi_devices(&state).await)
+}
+
+/// Anonymized Markdown support report in the UI language.
+#[tauri::command]
+pub async fn get_support_report(state: State<'_, Arc<AppState>>) -> CmdResult<String> {
+    Ok(crate::support_report::build(&state).await?)
+}
+
+/// Saves the support report with the native save dialog; `None` when cancelled.
+#[tauri::command]
+pub async fn export_support_report(
+    app: tauri::AppHandle,
+    state: State<'_, Arc<AppState>>,
+) -> CmdResult<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let report = crate::support_report::build(&state).await?;
+    let name = crate::support_report::default_file_name(now_ms());
+    let picked = tokio::task::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .add_filter("Markdown", &["md"])
+            .set_file_name(name)
+            .blocking_save_file()
+    })
+    .await
+    .map_err(|e| AppError::Internal(e.to_string()))?;
+    let Some(file) = picked else {
+        return Ok(None);
+    };
+    let path = file
+        .into_path()
+        .map_err(|_| AppError::InvalidInput("unsupported save location".into()))?;
+    let write_path = path.clone();
+    tokio::task::spawn_blocking(move || std::fs::write(&write_path, report))
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?
+        .map_err(AppError::from)?;
+    tracing::info!("support report exported");
+    Ok(Some(path.display().to_string()))
+}
+
+#[tauri::command]
+pub async fn get_lan_dashboard_info(
+    state: State<'_, Arc<AppState>>,
+) -> CmdResult<crate::models::LanDashboardInfo> {
+    Ok(crate::lan::info(&state).await)
+}
+
+/// New LAN dashboard access code (old links and QR codes stop working).
+pub async fn regenerate_lan_token_impl(state: &AppState) -> Result<Settings, AppError> {
+    let mut s = state.settings.read().await.clone();
+    s.lan_dashboard.token = crate::lan::generate_token();
+    state.update_settings(s).await
+}
+
+#[tauri::command]
+pub async fn regenerate_lan_token(state: State<'_, Arc<AppState>>) -> CmdResult<Settings> {
+    Ok(regenerate_lan_token_impl(&state).await?)
 }
 
 #[cfg(test)]
@@ -980,5 +1063,50 @@ mod tests {
         assert_eq!(err.kind(), "internal");
         assert!(!broken.settings.read().await.launch_at_login);
         assert!(!Settings::default().launch_at_login, "default off");
+    }
+
+    #[tokio::test]
+    async fn wifi_devices_from_mock_router() {
+        let (state, mock) = state_with_mock(MockProfile::Mini, true).await;
+        assert!(!wifi_devices(&state).await.available);
+        state.status.write().await.router_available = true;
+        *state.wifi_clients.write().await = crate::dish::RouterClient::wifi_clients(mock.as_ref())
+            .await
+            .unwrap();
+        *state.wifi_updated_ms.write().await = Some(1);
+        let w = wifi_devices(&state).await;
+        assert!(w.available);
+        assert_eq!(w.updated_ms, Some(1));
+        assert_eq!(w.devices.len(), 6, "router itself excluded");
+        assert!(w.devices.iter().all(|d| d.name.is_some()));
+        assert_eq!(w.devices[0].quality, Some(crate::models::WifiQuality::Poor));
+        // Names reach the live UI only: not the AI payload, the report or the LAN status.
+        let names: Vec<String> = w.devices.iter().filter_map(|d| d.name.clone()).collect();
+        let summary =
+            serde_json::to_string(&crate::ai::current_summary(&state).await.unwrap()).unwrap();
+        let report = crate::support_report::build(&state).await.unwrap();
+        let lan = serde_json::to_string(&crate::lan::status(&state, None, None).await).unwrap();
+        for n in &names {
+            assert!(!summary.contains(n.as_str()), "{n} in AI payload");
+            assert!(!report.contains(n.as_str()), "{n} in report");
+            assert!(!lan.contains(n.as_str()), "{n} in LAN status");
+        }
+        assert!(report.contains("Wi-Fi") && report.contains("Devices: 6"));
+    }
+
+    #[tokio::test]
+    async fn lan_token_regeneration_and_preservation() {
+        let state = AppState::in_memory(Settings::default()).unwrap();
+        let s1 = regenerate_lan_token_impl(&state).await.unwrap();
+        assert!(crate::lan::is_valid_token(&s1.lan_dashboard.token));
+        // Saving settings with an empty code keeps the current one.
+        let mut edit = s1.clone();
+        edit.lan_dashboard.token.clear();
+        edit.lan_dashboard.enabled = true;
+        let s2 = state.update_settings(edit).await.unwrap();
+        assert_eq!(s2.lan_dashboard.token, s1.lan_dashboard.token);
+        assert!(s2.lan_dashboard.enabled);
+        let s3 = regenerate_lan_token_impl(&state).await.unwrap();
+        assert_ne!(s3.lan_dashboard.token, s1.lan_dashboard.token);
     }
 }

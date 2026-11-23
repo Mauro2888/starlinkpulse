@@ -10,7 +10,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use async_trait::async_trait;
 
 use super::{
-    DeviceInfo, DishHistory, DishStatus, RouterClient, StarlinkClient, WifiClientInfo, WriteAction,
+    DeviceInfo, DeviceName, DishHistory, DishStatus, RouterClient, StarlinkClient, WifiClientInfo,
+    WriteAction,
 };
 use crate::error::ClientError;
 use crate::models::{
@@ -798,18 +799,29 @@ impl RouterClient for MockClient {
             return Err(ClientError::Unreachable("no mock router".into()));
         }
         let now_s = now_ms() / 1000;
-        let wifi = |iface: &str, dbm: f64, rate: f64, k: i64| WifiClientInfo {
-            iface: Some(iface.into()),
-            role: Some("CLIENT".into()),
-            signal_strength_dbm: Some((dbm + 2.0 * gauss(now_s / 5 + k, 95)).round()),
-            snr: Some((dbm + 95.0).round()),
-            channel_width_mhz: Some(if iface == "RF_5GHZ" { 80.0 } else { 20.0 }),
-            est_rx_rate_mbps: Some(rate),
-            est_tx_rate_mbps: Some(rate * 0.8),
-            rx_rate_mbps: Some(rate * 4.0),
-            tx_rate_mbps: Some(rate * 3.0),
-            associated_time_s: Some(600 + k as u64 * 1800),
-            hops_from_controller: Some(1),
+        // Fake names (display-only, like real ones).
+        let wifi = |name: &str, iface: &str, dbm: f64, rate: f64, k: i64| {
+            let load = (gauss(now_s / 15 + k * 7, 97).abs() * rate * 0.05).min(rate);
+            let age = 600 + k as u64 * 1800;
+            WifiClientInfo {
+                name: Some(DeviceName(name.into())),
+                iface: Some(iface.into()),
+                role: Some("CLIENT".into()),
+                signal_strength_dbm: (iface != "ETH")
+                    .then(|| (dbm + 2.0 * gauss(now_s / 5 + k, 95)).round()),
+                snr: (iface != "ETH").then(|| (dbm + 95.0).round()),
+                channel_width_mhz: Some(if iface == "RF_5GHZ" { 80.0 } else { 20.0 }),
+                est_rx_rate_mbps: Some(rate),
+                est_tx_rate_mbps: Some(rate * 0.8),
+                rx_rate_mbps: Some(rate * 3.0),
+                tx_rate_mbps: Some(rate * 4.0),
+                associated_time_s: Some(age),
+                hops_from_controller: Some(1),
+                rx_bytes: Some(age * (rate as u64) * 400),
+                tx_bytes: Some(age * (rate as u64) * 4000),
+                rx_throughput_mbps: Some((load * 0.1 * 100.0).round() / 100.0),
+                tx_throughput_mbps: Some((load * 100.0).round() / 100.0),
+            }
         };
         Ok(vec![
             WifiClientInfo {
@@ -817,10 +829,12 @@ impl RouterClient for MockClient {
                 role: Some("CONTROLLER".into()),
                 ..Default::default()
             },
-            wifi("RF_5GHZ", -48.0, 300.0, 1),
-            wifi("RF_5GHZ", -63.0, 140.0, 2),
-            wifi("RF_2GHZ", -71.0, 40.0, 3),
-            wifi("RF_2GHZ", -84.0, 8.0, 4),
+            wifi("Living room TV", "RF_5GHZ", -48.0, 300.0, 1),
+            wifi("Laptop", "RF_5GHZ", -63.0, 140.0, 2),
+            wifi("Phone", "RF_2GHZ", -71.0, 40.0, 3),
+            wifi("Garden camera", "RF_2GHZ", -84.0, 8.0, 4),
+            wifi("Desktop PC", "ETH", 0.0, 1000.0, 5),
+            wifi("Tablet", "RF_5GHZ", -58.0, 200.0, 6),
         ])
     }
 }

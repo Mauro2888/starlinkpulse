@@ -102,7 +102,7 @@ impl Fmt {
     }
 }
 
-fn duration(s: f64) -> String {
+pub fn duration(s: f64) -> String {
     let s = s.round() as i64;
     match s {
         0..=59 => format!("{s} s"),

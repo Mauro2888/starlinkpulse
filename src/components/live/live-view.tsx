@@ -68,6 +68,8 @@ export interface LiveViewProps {
   mockMode?: MockMode | null;
   /** Obstruction map section, rendered by the container (it fetches its own data). */
   skySlot?: ReactNode;
+  /** Wi-Fi devices card (Starlink router only), rendered as its own band. */
+  wifiSlot?: ReactNode;
   /** Opens guided alignment (only offered for dishes without motors). */
   onStartGuidedAlignment?: () => void;
   /** Optional battery for the runtime estimate on the Power tile. */
@@ -187,6 +189,7 @@ export function LiveView({
   pollIntervalS,
   mockMode,
   skySlot,
+  wifiSlot,
   onStartGuidedAlignment,
   battery,
 }: LiveViewProps) {
@@ -522,6 +525,9 @@ export function LiveView({
         </Section>
           </div>
         </div>
+
+        {/* Band 4: Wi-Fi devices (full width; rows flow into 1/2/3 columns). */}
+        {wifiSlot}
       </div>
 
       <p className="text-right text-[0.6875rem] text-muted-foreground" aria-live="off">

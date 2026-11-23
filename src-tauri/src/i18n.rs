@@ -344,6 +344,50 @@ catalog!(RuleTexts {
     headline_many: "{count} issues found; most important: {title}.", "{count} problemi rilevati; il più importante: {title}.";
 });
 
+catalog!(ReportTexts {
+    title: "StarlinkPulse support report", "Report di supporto StarlinkPulse";
+    generated: "Generated {time} (local time) with StarlinkPulse {version}.", "Generato il {time} (ora locale) con StarlinkPulse {version}.";
+    simulated: "Simulated data (mock mode), not a real dish.", "Dati simulati (modalità mock), non una parabola reale.";
+    dish: "Dish", "Parabola";
+    hardware: "Hardware", "Hardware";
+    firmware: "Firmware", "Firmware";
+    motorized: "Motorized", "Motorizzata";
+    yes: "yes", "sì";
+    no: "no", "no";
+    unknown: "unknown", "sconosciuto";
+    none: "none", "nessuno";
+    coverage: "Data coverage (24 h)", "Copertura dati (24 h)";
+    coverage_value: "{pct} ({minutes} min of history)", "{pct} ({minutes} min di storico)";
+    uptime: "Uptime", "Disponibilità";
+    window: "Window", "Periodo";
+    outages: "Outages", "Interruzioni";
+    downtime: "Downtime", "Tempo offline";
+    last_24h: "Last 24 hours", "Ultime 24 ore";
+    latency: "Latency avg / p95", "Latenza media / p95";
+    loss: "Ping loss", "Ping persi";
+    obstruction: "Sky obstructed", "Cielo ostruito";
+    throttled: "Throttled minutes", "Minuti con banda limitata";
+    alerts: "Active alerts", "Avvisi attivi";
+    outages_48h: "Outages (last 48 h)", "Interruzioni (ultime 48 h)";
+    no_outages: "No outages recorded.", "Nessuna interruzione registrata.";
+    totals_by_cause: "Totals by cause", "Totali per causa";
+    cause: "Cause", "Causa";
+    count: "Count", "Numero";
+    duration: "Duration", "Durata";
+    start: "Start", "Inizio";
+    more_rows: "{count} older outages not shown.", "{count} interruzioni meno recenti non mostrate.";
+    diagnosis: "Diagnosis (built-in rules)", "Diagnosi (regole integrate)";
+    no_findings: "No problems found.", "Nessun problema rilevato.";
+    info: "info", "info";
+    warning: "warning", "attenzione";
+    critical: "critical", "critico";
+    wifi: "Wi-Fi (Starlink router)", "Wi-Fi (router Starlink)";
+    wifi_absent: "Starlink router not detected (third-party router or bypass mode).", "Router Starlink non rilevato (router di terze parti o modalità bypass).";
+    wifi_devices: "Devices: {total} (2.4 GHz: {b24}, 5 GHz: {b5}, 6 GHz: {b6}, Ethernet: {eth}, other: {other})", "Dispositivi: {total} (2,4 GHz: {b24}, 5 GHz: {b5}, 6 GHz: {b6}, Ethernet: {eth}, altri: {other})";
+    wifi_signal: "Wireless signal: good {good}, fair {fair}, poor {poor}; weakest {weakest}", "Segnale wireless: buono {good}, discreto {fair}, scarso {poor}; il più debole {weakest}";
+    privacy: "This report contains no device IDs, location/GPS, MAC addresses or device names.", "Questo report non contiene ID dispositivo, posizione/GPS, indirizzi MAC né nomi dei dispositivi.";
+});
+
 /// Placeholders (`{name}`) used in a template, sorted.
 #[cfg(test)]
 pub(crate) fn placeholders(t: &str) -> Vec<String> {
@@ -400,6 +444,7 @@ mod tests {
         check_catalog(TrayTexts::entries());
         check_catalog(NotifyTexts::entries());
         check_catalog(RuleTexts::entries());
+        check_catalog(ReportTexts::entries());
     }
 
     #[test]

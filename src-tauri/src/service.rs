@@ -20,6 +20,8 @@ use crate::time::now_ms;
 pub const HISTORY_PERIOD: Duration = Duration::from_secs(300);
 /// Router poll period.
 pub const ROUTER_PERIOD: Duration = Duration::from_secs(60);
+/// Wi-Fi client refresh while the router is connected (read-only `wifi_get_clients`).
+pub const WIFI_PERIOD: Duration = Duration::from_secs(15);
 /// How often Auto mode retries the real dish while showing mock data.
 pub const REAL_RETRY_PERIOD: Duration = Duration::from_secs(60);
 /// Back-off before reconnecting when the dish is unreachable (Mock Mode off).
@@ -322,6 +324,9 @@ async fn session(state: &Arc<AppState>, settings: &Settings, sink: &Arc<dyn Even
     *state.client.write().await = Some(client.clone());
     *state.snapshot.write().await = None;
     *state.power_cache.write().await = None;
+    // Wi-Fi clients belong to the previous connection.
+    state.wifi_clients.write().await.clear();
+    *state.wifi_updated_ms.write().await = None;
     let mut router = router;
     detect_capabilities(state, sink, &client, router.is_some(), session_id).await;
     check_data_cap(state, sink, client.is_mock()).await;
@@ -344,7 +349,7 @@ async fn session(state: &Arc<AppState>, settings: &Settings, sink: &Arc<dyn Even
 
     let mut history = interval_at(Instant::now() + HISTORY_PERIOD, HISTORY_PERIOD);
     history.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    let mut router_tick = interval(ROUTER_PERIOD);
+    let mut router_tick = interval(WIFI_PERIOD);
     router_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut real_retry = interval_at(Instant::now() + REAL_RETRY_PERIOD, REAL_RETRY_PERIOD);
     let mut router_misses = 0u32;
@@ -367,6 +372,7 @@ async fn session(state: &Arc<AppState>, settings: &Settings, sink: &Arc<dyn Even
                         Ok(clients) => {
                             router_misses = 0;
                             *state.wifi_clients.write().await = clients;
+                            *state.wifi_updated_ms.write().await = Some(now_ms());
                         }
                         Err(e) => {
                             router_misses += 1;
@@ -374,6 +380,7 @@ async fn session(state: &Arc<AppState>, settings: &Settings, sink: &Arc<dyn Even
                                 tracing::info!(error = %e, "router lost");
                                 router = None;
                                 state.wifi_clients.write().await.clear();
+                                *state.wifi_updated_ms.write().await = None;
                                 state.capabilities.write().await.has_router = false;
                                 let caps = state.capabilities.read().await.clone();
                                 sink.capabilities(&caps);

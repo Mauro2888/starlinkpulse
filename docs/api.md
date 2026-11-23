@@ -41,6 +41,11 @@ All commands are async and return `Result<T, CommandError>`; arguments are camel
 | `preview_ai_payload` | – | `DiagnosticSummary` (exactly what would be sent; no network call) | 4 |
 | `analyze_network_with_ai` | `payload: DiagnosticSummary` (exactly the previewed payload; backend re-validates shape/limits and rejects `isSimulated` mismatch with the current source) | `AiReport` (errors: `no_api_key`, `ai_auth`, `ai_rate_limit`, `ai_unavailable`, `ai_refused`, `ai_invalid_response`, `offline`; `insufficient_data` when `historyMinutes` < 60; `invalid_input` when: AI provider is off, an analysis is already running, `isSimulated` differs from the current source, payload fields out of range/invalid, local model not set or not available, local URL invalid, or the API rejected the request (400/404)). `ruleFindings` in the payload are recomputed server-side. | 4 |
 | `get_last_ai_report` | – | `AiReport \| null` (persisted last report) | 4 |
+| `get_wifi_devices` | – | `WifiDevices` (`available:false` + empty list without a Starlink router; router itself excluded; poor signal first, then `downMbps` desc) | 7 |
+| `get_support_report` | – | `string` (anonymized Markdown, UI language) | 7 |
+| `export_support_report` | – | `string \| null` (native save dialog, `starlinkpulse-support-YYYYMMDD-HHMM.md`; null if cancelled) | 7 |
+| `get_lan_dashboard_info` | – | `LanDashboardInfo` (`urls`/`qrSvg` only while running; `error` e.g. port in use) | 7 |
+| `regenerate_lan_token` | – | `Settings` (new access code; old links/QR stop working) | 7 |
 
 ## Events (backend → frontend)
 
@@ -54,7 +59,9 @@ All commands are async and return `Result<T, CommandError>`; arguments are camel
 ## Rules
 - Write commands are rejected with `read_only` when `settings.readOnly` is true (default) and with `unsupported` when capabilities say so.
 - During development write commands are exercised only against `MockClient`.
-- No device IDs, MACs, GPS or client names ever cross this boundary.
+- No device IDs, MACs or GPS ever cross this boundary. Wi-Fi client names cross it only in
+  `get_wifi_devices` (live UI): they are never logged, persisted, exported, sent to the AI or
+  served by the LAN dashboard.
 
 ## Phase 4 – Anthropic API call (backend)
 - `POST https://api.anthropic.com/v1/messages`, headers `x-api-key: <keyring>`, `anthropic-version: 2026-10-21`, `content-type: application/json`.
@@ -79,3 +86,27 @@ All commands are async and return `Result<T, CommandError>`; arguments are camel
 - **Time of day:** hourly aggregates kept 90 days (new table), grouped by local weekday × hour.
 - **Readiness:** computed in Rust per live snapshot from latency, jitter, drop rate and obstruction (thresholds in docs/diagnostics.md); tray tooltip shows it.
 - **Energy:** daily Wh from the existing daily table; battery runtime is computed in the UI from `battery` + recent average power.
+
+## Phase 7 (v1.2)
+- **Wi-Fi devices:** from the router poll (`wifi_get_clients`, every 15 s while the router is
+  connected, read-only). Band: `ETH*` → ethernet, `RF_2*` → 2.4ghz, `RF_5*` → 5ghz, `RF_6*` →
+  6ghz. Quality from `signalStrength`: good ≥ −65 dBm, fair ≥ −75, else poor (`null` when not
+  reported, e.g. ethernet). Direction: router `rxStats` = device **upload**, `txStats` = device
+  **download** (`rateMbps` → link speed, `throughputMbpsLast15sAvg` clamped ≥ 0 → Mbps,
+  `bytes` → traffic). In Rust the name is a `DeviceName` (redacted `Debug`, `#[serde(skip)]`).
+- **Support report:** app version, hardware/firmware, motors, 24 h coverage, uptime 24h/7d/30d,
+  last-24 h latency avg/p95, ping loss, obstruction, throttled minutes, active alerts, outages of
+  the last 48 h (totals by cause + newest 50 rows), rule-engine findings, Wi-Fi counts per band /
+  quality and weakest dBm (never names). Footer states that no IDs/location/MAC/names are included.
+- **LAN dashboard:** `settings.lanDashboard = { enabled: false, port: 8787 (1024–65535), token }`.
+  The token (6 chars from `abcdefghjkmnpqrstuvwxyz23456789`) is generated at first start;
+  `update_settings` with an empty token keeps the current one. Server: HTTP/1.1 on
+  `0.0.0.0:<port>`, (re)started at startup and after `update_settings`; bind failures go to
+  `LanDashboardInfo.error`. Routes (GET only, others 405): `/?k=TOKEN` (self-contained ES5 page,
+  polls every 3 s), `/api/status?k=TOKEN` → `{ nowMs, lang, state, simulated, downMbps, upMbps,
+  latencyMs, lossPct, obstructionPct, jitterMs, readiness, uptime24hPct, lastOutage:{startMs,
+  durationS, cause} | null, alerts }`. The code is checked first (constant time) → 403 on mismatch
+  or when disabled; 404 for unknown paths. Headers: `Cache-Control: no-store`,
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, restrictive CSP,
+  `X-Frame-Options: DENY`. Max 32 concurrent connections, 10 s header timeout. No write
+  commands, no device names/IDs/GPS; the code and URLs are never logged.

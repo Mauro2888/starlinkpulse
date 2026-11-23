@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { StatePanel } from "@/components/state-panels";
 import { ReportView } from "@/components/advisor/report-view";
+import { SupportReportButton } from "@/components/advisor/support-report";
 
 interface Props {
   /** AI settings; null while loading. */
@@ -237,6 +238,9 @@ export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings, onOpen
   return (
     <div className="flex w-full flex-col gap-3">
       <div className="flex flex-wrap items-center justify-end gap-2">
+        <span className="mr-auto">
+          <SupportReportButton />
+        </span>
         <Button size="sm" variant={aiOn ? "outline" : "default"} onClick={diagnose} disabled={diagnosing}>
           {diagnosing ? <Loader2 className="animate-spin" aria-hidden /> : <ListChecks aria-hidden />}
           {t("Run diagnostics")}

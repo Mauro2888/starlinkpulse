@@ -357,6 +357,94 @@ pub struct Settings {
     pub local_ai_url: String,
     pub local_ai_kind: LocalAiKind,
     pub local_ai_model: String,
+    /// Read-only LAN dashboard for phones / TVs. Default off.
+    pub lan_dashboard: LanDashboardSettings,
+}
+
+/// Read-only LAN dashboard settings.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LanDashboardSettings {
+    pub enabled: bool,
+    pub port: u16,
+    /// Short access code, part of the dashboard URL. Empty until generated at startup.
+    pub token: String,
+}
+
+impl Default for LanDashboardSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            port: 8787,
+            token: String::new(),
+        }
+    }
+}
+
+/// State of the LAN dashboard server (`get_lan_dashboard_info`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LanDashboardInfo {
+    pub running: bool,
+    pub port: u16,
+    /// One URL per non-loopback IPv4 address (contain the access code; UI only).
+    pub urls: Vec<String>,
+    /// SVG QR code of the first URL.
+    pub qr_svg: Option<String>,
+    /// E.g. bind failure (port in use).
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WifiBand {
+    #[serde(rename = "2.4ghz")]
+    Ghz2_4,
+    #[serde(rename = "5ghz")]
+    Ghz5,
+    #[serde(rename = "6ghz")]
+    Ghz6,
+    #[serde(rename = "ethernet")]
+    Ethernet,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WifiQuality {
+    Good,
+    Fair,
+    Poor,
+}
+
+/// One Starlink router client for the live UI. `name` is display-only: never log, save,
+/// export or send it anywhere else.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WifiDevice {
+    pub name: Option<String>,
+    pub band: WifiBand,
+    pub role: Option<String>,
+    pub signal_dbm: Option<f64>,
+    pub snr: Option<f64>,
+    pub quality: Option<WifiQuality>,
+    pub link_down_mbps: Option<f64>,
+    pub link_up_mbps: Option<f64>,
+    pub down_mbps: Option<f64>,
+    pub up_mbps: Option<f64>,
+    pub down_bytes: Option<u64>,
+    pub up_bytes: Option<u64>,
+    pub connected_s: Option<u64>,
+}
+
+/// Result of `get_wifi_devices`.
+#[derive(Debug, Clone, PartialEq, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WifiDevices {
+    /// False when the Starlink router is not reachable (third-party router / bypass).
+    pub available: bool,
+    pub devices: Vec<WifiDevice>,
+    pub updated_ms: Option<i64>,
 }
 
 /// Desktop notification preferences.
@@ -459,6 +547,7 @@ impl Default for Settings {
             local_ai_url: "http://localhost:11434".into(),
             local_ai_kind: LocalAiKind::Ollama,
             local_ai_model: String::new(),
+            lan_dashboard: LanDashboardSettings::default(),
         }
     }
 }
