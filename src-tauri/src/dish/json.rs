@@ -47,14 +47,20 @@ pub const PII_KEYS: &[&str] = &[
 
 /// Recursively removes [`PII_KEYS`] from a JSON value.
 pub fn strip_pii(value: &mut Value) {
+    strip_pii_except(value, &[]);
+}
+
+/// Like [`strip_pii`] but keeps the listed keys (used only for the router client name,
+/// which the typed parser stores as a never-serialized [`DeviceName`]).
+pub fn strip_pii_except(value: &mut Value, keep: &[&str]) {
     match value {
         Value::Object(map) => {
-            map.retain(|k, _| !PII_KEYS.contains(&k.as_str()));
+            map.retain(|k, _| keep.contains(&k.as_str()) || !PII_KEYS.contains(&k.as_str()));
             for v in map.values_mut() {
-                strip_pii(v);
+                strip_pii_except(v, keep);
             }
         }
-        Value::Array(items) => items.iter_mut().for_each(strip_pii),
+        Value::Array(items) => items.iter_mut().for_each(|v| strip_pii_except(v, keep)),
         _ => {}
     }
 }
@@ -709,5 +715,15 @@ mod tests {
         assert_eq!(uint(Some(&json!(-1))), None);
         assert_eq!(int(Some(&json!("-7"))), Some(-7));
         assert_eq!(string(Some(&json!(""))), None);
+    }
+
+    #[test]
+    fn strip_pii_except_keeps_only_listed_keys() {
+        let mut v = json!({"clients": [{"name": "Phone", "macAddress": "aa", "ipAddress": "1.2.3.4", "signalStrength": -50}]});
+        strip_pii_except(&mut v, &["name"]);
+        assert_eq!(
+            v,
+            json!({"clients": [{"name": "Phone", "signalStrength": -50}]})
+        );
     }
 }

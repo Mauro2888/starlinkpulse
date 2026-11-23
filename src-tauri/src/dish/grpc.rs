@@ -15,7 +15,7 @@ use tonic::codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder};
 use tonic::codegen::http::uri::PathAndQuery;
 use tonic::transport::{Channel, Endpoint};
 
-use super::json::{self, response_body, strip_pii};
+use super::json::{self, response_body, strip_pii_except};
 use super::reflection::{
     DEVICE_SERVICE, HANDLE_METHOD, ReflectionSchema, SchemaCache, fetch_schema,
 };
@@ -201,11 +201,15 @@ pub fn build_write_request(
 /// Converts a decoded response to proto3 JSON (including default-valued scalars, so a
 /// field present in the schema but zero shows up as `0`), then strips PII.
 pub fn message_to_json(msg: &DynamicMessage) -> Result<Value, ClientError> {
+    message_to_json_keeping(msg, &[])
+}
+
+fn message_to_json_keeping(msg: &DynamicMessage, keep: &[&str]) -> Result<Value, ClientError> {
     let opts = SerializeOptions::new().skip_default_fields(false);
     let mut v = msg
         .serialize_with_options(serde_json::value::Serializer, &opts)
         .map_err(|e| ClientError::Decode(e.to_string()))?;
-    strip_pii(&mut v);
+    strip_pii_except(&mut v, keep);
     Ok(v)
 }
 
@@ -306,6 +310,14 @@ impl GrpcClient {
     }
 
     async fn call(&self, request: DynamicMessage) -> Result<Value, ClientError> {
+        self.call_keeping(request, &[]).await
+    }
+
+    async fn call_keeping(
+        &self,
+        request: DynamicMessage,
+        keep: &[&str],
+    ) -> Result<Value, ClientError> {
         let codec = DynamicCodec::new(self.schema.response.clone());
         let path = PathAndQuery::try_from(format!("/{DEVICE_SERVICE}/{HANDLE_METHOD}"))
             .map_err(|e| ClientError::Schema(e.to_string()))?;
@@ -322,7 +334,7 @@ impl GrpcClient {
         let msg = tokio::time::timeout(self.timeout, fut)
             .await
             .map_err(|_| ClientError::Timeout)??;
-        message_to_json(&msg)
+        message_to_json_keeping(&msg, keep)
     }
 
     /// Reads `dish_get_config` (read-only). Returns the PII-stripped `dishConfig` JSON and
@@ -394,7 +406,9 @@ impl StarlinkClient for GrpcClient {
 #[async_trait]
 impl RouterClient for GrpcClient {
     async fn wifi_clients(&self) -> Result<Vec<WifiClientInfo>, ClientError> {
-        let top = self.handle("wifi_get_clients").await?;
+        // Keep only the client name (display-only, see `DeviceName`); all other PII is removed.
+        let req = build_request(&self.schema, "wifi_get_clients", None)?;
+        let top = self.call_keeping(req, &["name"]).await?;
         Ok(json::parse_wifi_clients(response_body(
             &top,
             "wifiGetClients",
