@@ -65,7 +65,11 @@ export function explainRestriction(raw: string | null | undefined): RestrictionI
       ),
     };
   }
-  return { restricted: true, title: humanizeEnum(raw), detail: t("Starlink is limiting bandwidth for this reason.") };
+  return {
+    restricted: true,
+    title: labelEnum(RESTRICTIONS, raw),
+    detail: t("Starlink is limiting bandwidth for this reason."),
+  };
 }
 
 const CAUSES: Record<string, string> = {
@@ -83,6 +87,12 @@ const CAUSES: Record<string, string> = {
   cellisdisabled: tk("Cell disabled"),
   rollingupdate: tk("Software update"),
   unknown: tk("Unknown"),
+  nosats: tk("No satellites in view"),
+  actuatoractivity: tk("Dish moving"),
+  cabletest: tk("Cable test"),
+  sleeping: tk("Sleeping (power save)"),
+  movingwhilenotpermitted: tk("Moving while not allowed"),
+  movingtoofast: tk("Moving too fast"),
 };
 
 /** Human label for an outage cause, e.g. "OUTAGE_NO_DOWNLINK" -> "No downlink". */
@@ -101,5 +111,68 @@ export function explainDisablement(raw: string | null | undefined): string | nul
   if (!raw) return null;
   const k = key(raw);
   if (k === "okay" || k === "unknownstate" || k === "unknown") return null;
-  return humanizeEnum(raw);
+  return labelEnum(DISABLEMENT, raw);
+}
+
+// ---- Readable labels for other dish enums (EN keys, translated at call time) ----
+
+/** Maps a raw enum to a translated label; unknown values fall back to a humanized name. */
+export function labelEnum(map: Record<string, string>, raw: string | null | undefined, strip?: RegExp): string {
+  if (!raw) return humanizeEnum(raw);
+  const k = key(strip ? raw.replace(strip, "") : raw);
+  return map[k] ? t(map[k]) : humanizeEnum(strip ? raw.replace(strip, "") : raw);
+}
+
+const RESTRICTIONS: Record<string, string> = {
+  policylimit: tk("Speed limited by plan"),
+  networkcongestion: tk("Network congestion"),
+  datacap: tk("Data allowance used up"),
+};
+
+const DISABLEMENT: Record<string, string> = {
+  noactiveaccount: tk("No active account"),
+  accountdisabled: tk("Account disabled"),
+  toofarfromserviceaddress: tk("Too far from the service address"),
+  inocean: tk("In ocean (plan doesn't cover it)"),
+  blockedcountry: tk("Not available in this country"),
+  dataoveragesandboxpolicy: tk("Data limit reached"),
+  cellisdisabled: tk("Service cell disabled"),
+  roamrestricted: tk("Roaming not allowed"),
+  unknownlocation: tk("Location unknown"),
+  unsupportedversion: tk("Software version not supported"),
+  movingtoofastpolicy: tk("Moving too fast for this plan"),
+  aviationflyoverlimits: tk("Aviation limits"),
+};
+
+const SOFTWARE_UPDATE: Record<string, string> = {
+  idle: tk("Up to date"),
+  fetching: tk("Downloading update"),
+  precheck: tk("Checking update"),
+  writing: tk("Installing update"),
+  postcheck: tk("Verifying update"),
+  rebootrequired: tk("Restart needed to finish update"),
+  disabled: tk("Updates disabled"),
+  faulted: tk("Update failed"),
+  unknown: tk("Unknown"),
+};
+
+/** Software update state, e.g. "IDLE" → "Up to date". */
+export function explainSoftwareUpdate(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  return labelEnum(SOFTWARE_UPDATE, raw, /^SOFTWARE_UPDATE_STATE_/i);
+}
+
+const ESTIMATION: Record<string, string> = {
+  converged: tk("Position settled"),
+  converging: tk("Settling position"),
+  unconverged: tk("Position not settled"),
+  initializing: tk("Starting position estimate"),
+  reset: tk("Position estimate restarted"),
+  unknown: tk("Unknown"),
+};
+
+/** Attitude estimator state, e.g. "FILTER_CONVERGED" → "Position settled". */
+export function explainEstimation(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  return labelEnum(ESTIMATION, raw, /^(ATTITUDE_)?FILTER_/i);
 }

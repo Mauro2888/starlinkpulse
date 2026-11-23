@@ -5,6 +5,7 @@ import { api, events } from "@/lib/api";
 import { toastError } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 import { fmtNum } from "@/lib/format";
+import { explainEstimation } from "@/lib/explain";
 import { useTranslation } from "react-i18next";
 import { tr } from "@/i18n";
 import { tk } from "@/i18n/keys";
@@ -235,6 +236,7 @@ export function AlignMode({ snapshot, onClose }: Props) {
               a.desiredElevationDeg !== null &&
               ` · ${t("tilt {{now}}° / {{target}}°", { now: fmtNum(a.elevationDeg, 1, true), target: fmtNum(a.desiredElevationDeg, 1, true) })}`}
             {a.uncertaintyDeg !== null && ` · ±${fmtNum(a.uncertaintyDeg, 1, true)}°`}
+            {a.estimationState && ` · ${explainEstimation(a.estimationState)}`}
           </p>
         )}
         <p>{t("The dish recalculates the recommended direction; it can shift slightly after you move it.")}</p>

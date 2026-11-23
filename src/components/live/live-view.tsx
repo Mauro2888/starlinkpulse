@@ -40,10 +40,9 @@ import {
   formatMsParts,
   formatPercentParts,
   formatWattsParts,
-  humanizeEnum,
   isNum,
 } from "@/lib/format";
-import { explainAlert, explainDisablement, explainRestriction } from "@/lib/explain";
+import { explainAlert, explainDisablement, explainRestriction, explainSoftwareUpdate } from "@/lib/explain";
 import { dishModelName } from "@/lib/dish";
 import { alignmentGuidance } from "@/lib/sky";
 import { mean, runtimeSeconds } from "@/lib/energy";
@@ -509,7 +508,7 @@ export function LiveView({
             />
             <Row
               label={t("Software update")}
-              value={s.softwareUpdateState ? humanizeEnum(s.softwareUpdateState) : null}
+              value={explainSoftwareUpdate(s.softwareUpdateState)}
             />
             <Row
               label={t("Snow melt")}
