@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Copy, FileText, Loader2, Save, ShieldCheck } from "lucide-react";
 import { api } from "@/lib/api";
@@ -23,11 +23,27 @@ export function SupportReportButton() {
   const [error, setError] = useState<ApiError | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Request counter: ignore responses that were superseded or arrive after close.
+  const reqId = useRef(0);
+
   const show = () => {
+    const id = ++reqId.current;
     setOpen(true);
     setReport(null);
     setError(null);
-    api.getSupportReport().then(setReport, (e) => setError(normalizeError(e)));
+    api.getSupportReport().then(
+      (r) => {
+        if (id === reqId.current) setReport(r);
+      },
+      (e) => {
+        if (id === reqId.current) setError(normalizeError(e));
+      },
+    );
+  };
+
+  const onOpenChange = (o: boolean) => {
+    if (!o) reqId.current++;
+    setOpen(o);
   };
 
   const copy = async () => {
@@ -41,10 +57,11 @@ export function SupportReportButton() {
   };
 
   const save = async () => {
+    if (!report) return;
     setSaving(true);
     try {
       // Native save dialog; null = cancelled, say nothing.
-      const path = await api.exportSupportReport();
+      const path = await api.exportSupportReport(report);
       if (path) toastSuccess(t("Report saved"), t("Saved to {{path}}", { path }));
     } catch (e) {
       toastError(e, t("Could not save"));
@@ -59,13 +76,13 @@ export function SupportReportButton() {
         <FileText aria-hidden />
         {t("Support report")}
       </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden sm:max-w-lg">
           <DialogHeader className="shrink-0">
             <DialogTitle>{t("Report for Starlink support")}</DialogTitle>
             <DialogDescription className="flex items-start gap-1.5">
               <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-good" aria-hidden />
-              {t("A summary of the last 48 hours. It contains no serial numbers or IDs, no location and no device names.")}
+              {t("A summary of the last 24 hours, outages from the last 48 hours and uptime up to 30 days. It contains no serial numbers or IDs, no location and no device names.")}
             </DialogDescription>
           </DialogHeader>
           {/* Only the body scrolls: header and buttons stay visible. */}

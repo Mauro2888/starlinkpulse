@@ -64,7 +64,7 @@ export interface CommandMap {
   get_last_ai_report: { args: void; result: AiReport | null };
   get_wifi_devices: { args: void; result: WifiDevices };
   get_support_report: { args: void; result: string };
-  export_support_report: { args: void; result: string | null };
+  export_support_report: { args: { report: string }; result: string | null };
 }
 
 /** Event name -> payload type. */
@@ -187,7 +187,7 @@ export const api = {
   /** Anonymized Markdown report (no IDs, location or device names). */
   getSupportReport: () => call("get_support_report"),
   /** Native save dialog; returns the saved path, or null if cancelled. */
-  exportSupportReport: () => call("export_support_report"),
+  exportSupportReport: (report: string) => call("export_support_report", { report }),
 } as const;
 
 export const events = {

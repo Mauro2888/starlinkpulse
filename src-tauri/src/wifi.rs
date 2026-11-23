@@ -8,7 +8,7 @@ use crate::dish::WifiClientInfo;
 use crate::models::{WifiBand, WifiDevice, WifiQuality};
 
 pub const GOOD_DBM: f64 = -65.0;
-pub const FAIR_DBM: f64 = -75.0;
+pub const FAIR_DBM: f64 = crate::rules::WIFI_WARN_DBM;
 
 pub fn band(iface: Option<&str>) -> WifiBand {
     match iface {
@@ -94,6 +94,9 @@ pub fn summary(clients: &[WifiClientInfo]) -> WifiSummary {
             WifiBand::Ethernet => s.ethernet += 1,
             WifiBand::Unknown => s.other += 1,
         }
+        if d.role.as_deref().is_some_and(|r| r != "CLIENT") {
+            continue;
+        }
         match d.quality {
             Some(WifiQuality::Good) => s.good += 1,
             Some(WifiQuality::Fair) => s.fair += 1,
@@ -124,6 +127,15 @@ mod tests {
             tx_throughput_mbps: down,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn summary_excludes_repeaters_from_quality() {
+        let mut rep = client("r", "RF_5GHZ", Some(-85.0), None);
+        rep.role = Some("REPEATER".into());
+        let s = summary(&[rep, client("a", "RF_5GHZ", Some(-70.0), None)]);
+        assert_eq!((s.good, s.fair, s.poor), (0, 1, 0));
+        assert_eq!(s.weakest_dbm, Some(-70.0));
     }
 
     #[test]

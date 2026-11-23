@@ -54,7 +54,6 @@ pub struct AppState {
     pub wifi_clients: RwLock<Vec<WifiClientInfo>>,
     /// When `wifi_clients` was last refreshed (Unix ms).
     pub wifi_updated_ms: RwLock<Option<i64>>,
-    /// Read-only LAN dashboard server.
     /// History of the real dish (file-backed).
     pub db: Arc<Mutex<Db>>,
     /// History of the mock dish (in memory, never mixed with real data).

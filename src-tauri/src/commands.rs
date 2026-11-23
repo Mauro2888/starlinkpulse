@@ -582,7 +582,7 @@ pub async fn delete_api_key() -> CmdResult<()> {
     blocking(keyring_store::delete_api_key).await
 }
 
-// ---- Phase 7: Wi-Fi devices, support report, LAN dashboard ----
+// ---- Phase 7: Wi-Fi devices, support report ----
 
 /// Starlink router clients for the live UI. Names are display-only (never logged/stored).
 pub async fn wifi_devices(state: &AppState) -> crate::models::WifiDevices {
@@ -610,15 +610,20 @@ pub async fn get_support_report(state: State<'_, Arc<AppState>>) -> CmdResult<St
     Ok(crate::support_report::build(&state).await?)
 }
 
-/// Saves the support report with the native save dialog; `None` when cancelled.
+/// Max size of an exported report.
+const MAX_REPORT_BYTES: usize = 1_000_000;
+
+/// Saves the given (previewed) support report with the native save dialog; `None` when cancelled.
 #[tauri::command]
 pub async fn export_support_report(
     app: tauri::AppHandle,
-    state: State<'_, Arc<AppState>>,
+    report: String,
 ) -> CmdResult<Option<String>> {
     use tauri_plugin_dialog::DialogExt;
 
-    let report = crate::support_report::build(&state).await?;
+    if report.len() > MAX_REPORT_BYTES {
+        return Err(AppError::InvalidInput("report too large".into()).into());
+    }
     let name = crate::support_report::default_file_name(now_ms());
     let picked = tokio::task::spawn_blocking(move || {
         app.dialog()

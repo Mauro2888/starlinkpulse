@@ -21,6 +21,10 @@ pub const HISTORY_PERIOD: Duration = Duration::from_secs(300);
 /// Router poll period.
 pub const ROUTER_PERIOD: Duration = Duration::from_secs(60);
 /// Wi-Fi client refresh while the router is connected (read-only `wifi_get_clients`).
+/// Consecutive failed router polls (15 s apart, ~3 min) before the router is declared lost.
+const ROUTER_LOST_MISSES: u32 = 12;
+/// Router poll timeout; keeps the session loop responsive.
+const ROUTER_POLL_TIMEOUT: Duration = Duration::from_secs(2);
 pub const WIFI_PERIOD: Duration = Duration::from_secs(15);
 /// How often Auto mode retries the real dish while showing mock data.
 pub const REAL_RETRY_PERIOD: Duration = Duration::from_secs(60);
@@ -368,7 +372,10 @@ async fn session(state: &Arc<AppState>, settings: &Settings, sink: &Arc<dyn Even
             }
             _ = router_tick.tick() => {
                 if let Some(r) = router.clone() {
-                    match r.wifi_clients().await {
+                    match tokio::time::timeout(ROUTER_POLL_TIMEOUT, r.wifi_clients())
+                        .await
+                        .unwrap_or(Err(crate::error::ClientError::Timeout))
+                    {
                         Ok(clients) => {
                             router_misses = 0;
                             *state.wifi_clients.write().await = clients;
@@ -376,7 +383,7 @@ async fn session(state: &Arc<AppState>, settings: &Settings, sink: &Arc<dyn Even
                         }
                         Err(e) => {
                             router_misses += 1;
-                            if router_misses >= 3 {
+                            if router_misses >= ROUTER_LOST_MISSES {
                                 tracing::info!(error = %e, "router lost");
                                 router = None;
                                 state.wifi_clients.write().await.clear();

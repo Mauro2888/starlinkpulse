@@ -43,7 +43,7 @@ All commands are async and return `Result<T, CommandError>`; arguments are camel
 | `get_last_ai_report` | – | `AiReport \| null` (persisted last report) | 4 |
 | `get_wifi_devices` | – | `WifiDevices` (`available:false` + empty list without a Starlink router; router itself excluded; poor signal first, then `downMbps` desc) | 7 |
 | `get_support_report` | – | `string` (anonymized Markdown, UI language) | 7 |
-| `export_support_report` | – | `string \| null` (native save dialog, `starlinkpulse-support-YYYYMMDD-HHMM.md`; null if cancelled) | 7 |
+| `export_support_report` | `{ report: string }` (previewed text, max 1 MB) | `string \| null` (native save dialog, `starlinkpulse-support-YYYYMMDD-HHMM.md`; null if cancelled) | 7 |
 
 ## Events (backend → frontend)
 

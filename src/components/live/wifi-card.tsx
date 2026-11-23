@@ -4,8 +4,8 @@ import { ArrowDown, ArrowUp, Lightbulb, Router, ShieldCheck, WifiOff } from "luc
 import type { WifiDevice, WifiDevices, WifiQuality } from "@/types/models";
 import { api } from "@/lib/api";
 import { normalizeError, type ApiError } from "@/lib/errors";
-import { EM_DASH, fmtNum, formatBps, isNum } from "@/lib/format";
-import { BAND_LABELS, isRepeater, weakSignalTip, wifiQuality } from "@/lib/wifi";
+import { EM_DASH, fmtNum, formatAgo, formatBps, isNum } from "@/lib/format";
+import { BAND_LABELS, isRepeater, weakSignalTip, wifiDeviceKey, wifiQuality } from "@/lib/wifi";
 import { cn } from "@/lib/utils";
 import { tk } from "@/i18n/keys";
 import { Section, StatePanel } from "@/components/state-panels";
@@ -58,7 +58,9 @@ export function WifiCard() {
 export function WifiDevicesView({ data, error }: { data: WifiDevices | null; error: ApiError | null }) {
   const { t } = useTranslation();
   const devices = data?.available ? data.devices : [];
-  const weak = devices.filter((d) => wifiQuality(d) === "poor").length;
+  const weak = devices.filter((d) => wifiQuality(d) === "poor" && !isRepeater(d)).length;
+  // A refresh failed after data was loaded: do not present the old list as live.
+  const stale = !!error && !!data?.available;
   const tip = weakSignalTip(devices);
 
   let body;
@@ -92,7 +94,7 @@ export function WifiDevicesView({ data, error }: { data: WifiDevices | null; err
             : isRepeater(d)
               ? t("Mesh repeater")
               : t("Device {{n}}", { n: ++unnamed });
-          return <DeviceRow key={i} device={d} label={label} />;
+          return <DeviceRow key={wifiDeviceKey(d, i, devices)} device={d} label={label} />;
         })}
       </ul>
     );
@@ -111,7 +113,15 @@ export function WifiDevicesView({ data, error }: { data: WifiDevices | null; err
         ) : undefined
       }
     >
-      {body}
+      {stale && (
+        <p role="status" className="mb-2 flex items-center gap-1.5 text-xs text-warning">
+          <WifiOff className="size-3.5 shrink-0" aria-hidden />
+          {isNum(data?.updatedMs)
+            ? t("Not updated, last data {{ago}}", { ago: formatAgo(data.updatedMs) })
+            : t("Not updated, showing the last data received")}
+        </p>
+      )}
+      <div className={cn(stale && "opacity-60")}>{body}</div>
       {tip && (
         <p className="mt-2.5 flex items-start gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs leading-relaxed ring-1 ring-warning/30">
           <Lightbulb className="mt-px size-3.5 shrink-0 text-warning" aria-hidden />

@@ -291,7 +291,7 @@ export class MockBackend implements Backend {
         return mockSupportReport(this.profile, this.settings.mockProfile);
       case "export_support_report": {
         // Browser mock: download the file client-side.
-        const blob = new Blob([mockSupportReport(this.profile, this.settings.mockProfile)], { type: "text/markdown" });
+        const blob = new Blob([String(args.report ?? "")], { type: "text/markdown" });
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
         a.download = "starlinkpulse-support-report.md";

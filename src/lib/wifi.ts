@@ -14,11 +14,18 @@ export function isRepeater(d: WifiDevice): boolean {
   return d.role?.toUpperCase() === "REPEATER";
 }
 
-/** Backend quality, or a fallback from dBm (≥ -65 good, ≥ -75 fair). */
+/** Backend quality, or a fallback from dBm (≥ -65 good, ≥ -70 fair, as the backend diagnosis). */
 export function wifiQuality(d: WifiDevice): WifiQuality | null {
   if (d.quality) return d.quality;
   if (!isNum(d.signalDbm) || d.band === "ethernet") return null;
-  return d.signalDbm >= -65 ? "good" : d.signalDbm >= -75 ? "fair" : "poor";
+  return d.signalDbm >= -65 ? "good" : d.signalDbm >= -70 ? "fair" : "poor";
+}
+
+/** Stable list key: name + band + role, with the index as a tiebreaker for duplicates. */
+export function wifiDeviceKey(d: WifiDevice, i: number, all: WifiDevice[]): string {
+  const base = `${d.name ?? ""}|${d.band}|${d.role ?? ""}`;
+  const dup = all.slice(0, i).filter((o) => `${o.name ?? ""}|${o.band}|${o.role ?? ""}` === base).length;
+  return dup ? `${base}#${dup}` : base;
 }
 
 /** Short advice when some device has a poor signal; null when all is fine. */

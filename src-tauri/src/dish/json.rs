@@ -416,12 +416,12 @@ pub fn parse_wifi_clients(body: &Value) -> Vec<WifiClientInfo> {
                     role: string(c.get("role")),
                     // 0 means "not reported" (wired / mesh entries).
                     signal_strength_dbm: num(c.get("signalStrength")).filter(|v| *v != 0.0),
-                    snr: num(c.get("snr")),
+                    snr: num(c.get("snr")).filter(|v| *v != 0.0),
                     channel_width_mhz: num(c.get("channelWidth")),
                     est_rx_rate_mbps: num(c.get("estRxRateMbpsFromController")),
                     est_tx_rate_mbps: num(c.get("estTxRateMbpsFromController")),
-                    rx_rate_mbps: num(path(c, &["rxStats", "rateMbps"])),
-                    tx_rate_mbps: num(path(c, &["txStats", "rateMbps"])),
+                    rx_rate_mbps: num(path(c, &["rxStats", "rateMbps"])).filter(|v| *v != 0.0),
+                    tx_rate_mbps: num(path(c, &["txStats", "rateMbps"])).filter(|v| *v != 0.0),
                     associated_time_s: uint(c.get("associatedTimeS")),
                     hops_from_controller: uint(c.get("hopsFromController")).map(|n| n as u32),
                     rx_bytes: uint(path(c, &["rxStats", "bytes"])),
@@ -725,5 +725,12 @@ mod tests {
             v,
             json!({"clients": [{"name": "Phone", "signalStrength": -50}]})
         );
+    }
+
+    #[test]
+    fn wifi_zero_snr_and_rates_are_none() {
+        let body = json!({"clients": [{"snr": 0, "rxStats": {"rateMbps": 0}, "txStats": {"rateMbps": 0}}]});
+        let c = &parse_wifi_clients(&body)[0];
+        assert_eq!((c.snr, c.rx_rate_mbps, c.tx_rate_mbps), (None, None, None));
     }
 }

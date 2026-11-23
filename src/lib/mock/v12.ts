@@ -1,4 +1,4 @@
-// Mock data for v1.2: Wi-Fi clients, support report, LAN dashboard.
+// Mock data for v1.2: Wi-Fi clients and support report.
 import type { WifiDevice, WifiDevices } from "@/types/models";
 import type { ProfileSpec } from "@/lib/mock/profiles";
 

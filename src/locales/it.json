@@ -741,7 +741,6 @@
   "{{count}} connected_other": "{{count}} connessi",
   "{{count}} weak signal_one": "{{count}} con segnale debole",
   "{{count}} weak signal_other": "{{count}} con segnale debole",
-  "A summary of the last 48 hours. It contains no serial numbers or IDs, no location and no device names.": "Un riepilogo delle ultime 48 ore. Non contiene numeri di serie o ID, posizione né nomi dei dispositivi.",
   "Copy": "Copia",
   "Could not copy": "Impossibile copiare",
   "Could not save": "Impossibile salvare",
@@ -763,5 +762,8 @@
   "Weak 5/6 GHz signal: move closer to the router, or let far devices use 2.4 GHz, which reaches further but is slower. A mesh unit helps in distant rooms.": "Segnale 5/6 GHz debole: avvicinati al router, oppure lascia che i dispositivi lontani usino i 2,4 GHz, che arrivano più lontano ma sono più lenti. Un'unità mesh aiuta nelle stanze distanti.",
   "Weak signal: move the device or the router closer and away from walls and metal. Near the router, 5 GHz is faster; a mesh unit helps in distant rooms.": "Segnale debole: avvicina il dispositivo o il router, lontano da muri e metallo. Vicino al router i 5 GHz sono più veloci; un'unità mesh aiuta nelle stanze distanti.",
   "Wi-Fi devices": "Dispositivi Wi-Fi",
-  "You may be using a third-party router or bypass mode.": "Forse stai usando un router di terze parti o la modalità bypass."
+  "You may be using a third-party router or bypass mode.": "Forse stai usando un router di terze parti o la modalità bypass.",
+  "A summary of the last 24 hours, outages from the last 48 hours and uptime up to 30 days. It contains no serial numbers or IDs, no location and no device names.": "Un riepilogo delle ultime 24 ore, con le interruzioni delle ultime 48 ore e la disponibilità fino a 30 giorni. Non contiene numeri di serie o ID, posizione né nomi dei dispositivi.",
+  "Not updated, last data {{ago}}": "Non aggiornato, ultimi dati {{ago}}",
+  "Not updated, showing the last data received": "Non aggiornato, mostro gli ultimi dati ricevuti"
 }

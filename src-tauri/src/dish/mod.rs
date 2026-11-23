@@ -84,7 +84,7 @@ impl DishHistory {
 }
 
 /// Client name reported by the router. Display-only: it is skipped by `Serialize` and
-/// redacted in `Debug`, so it can never reach logs, files, the AI payload or the LAN page.
+/// redacted in `Debug`, so it can never reach logs, files or the AI payload.
 #[derive(Clone, PartialEq, Eq)]
 pub struct DeviceName(pub String);
 
