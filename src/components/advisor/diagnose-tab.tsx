@@ -470,7 +470,7 @@ export function PreviewDialog({
               <AlertDialogDescription>{privacyNote(d)}</AlertDialogDescription>
             </AlertDialogHeader>
             {/* Only the body scrolls: header and the Send / Don't send buttons stay visible. */}
-            <div className="-mx-4 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4">
+            <div className="-mx-4 -my-1 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-1">
             {payload.isSimulated && (
               <p role="alert" className="flex items-start gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs ring-1 ring-warning/40">
                 <FlaskConical className="mt-px size-3.5 shrink-0 text-warning" aria-hidden />

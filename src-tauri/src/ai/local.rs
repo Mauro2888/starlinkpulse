@@ -240,8 +240,11 @@ impl LocalClient {
         let (mut status, mut text) = self.post(url.clone(), &body).await?;
         // Older Ollama versions or models may reject the `think` flag: retry once without it.
         if self.kind == LocalAiKind::Ollama
-            && (400..500).contains(&status)
-            && error_message(&text).is_some_and(|m| m.to_lowercase().contains("think"))
+            && status == 400
+            && error_message(&text).is_some_and(|m| {
+                let m = m.to_lowercase();
+                m.contains("think") && !m.contains("not found")
+            })
         {
             let mut plain = body;
             if let Some(o) = plain.as_object_mut() {
