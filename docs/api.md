@@ -73,7 +73,7 @@ All commands are async and return `Result<T, CommandError>`; arguments are camel
 ## Phase 4.6 – Rule engine + optional AI providers
 - `run_diagnostics` is the default, always-available path: deterministic Rust rules over the 24 h `DiagnosticSummary` → `AiReport{source:"rules", model:"rules-v1"}`. Persisted as last rules report.
 - `analyze_network_with_ai` uses `settings.aiProvider`: `off` → error `invalid_input` ("AI explanations are turned off"); `claude` → Anthropic as in Phase 4; `local` → local server. The payload is `DiagnosticSummary` **including `ruleFindings`**; the model is told to explain/prioritize the rule findings and only add what the data supports. Preview = exact payload.
-- Local server: `localAiKind = "ollama"` → `POST {localAiUrl}/api/chat` with `stream:false`, `format: <same JSON schema>`; `"openai_compatible"` (LM Studio, llama.cpp) → `POST {localAiUrl}/v1/chat/completions` with `response_format: {type:"json_schema", json_schema:{name, schema, strict:true}}`. No API key. Timeout 180 s. Model list: Ollama `GET /api/tags`, OpenAI-compatible `GET /v1/models`.
+- Local server: `localAiKind = "ollama"` → `POST {localAiUrl}/api/chat` with `stream:false`, `format: <same JSON schema>`; `"openai_compatible"` (LM Studio, llama.cpp) → `POST {localAiUrl}/v1/chat/completions` with `response_format: {type:"json_schema", json_schema:{name, schema, strict:true}}`. No API key. Timeout 300 s; Ollama gets `"think": false` (retried without it if the server rejects the field). Model list: Ollama `GET /api/tags`, OpenAI-compatible `GET /v1/models`.
 - Local URL: http/https only; non-loopback hosts allowed but the UI must warn that data leaves this computer.
 - Default `aiProvider: "off"`; `localAiUrl: "http://localhost:11434"`, `localAiKind: "ollama"`, `localAiModel: ""`.
 
@@ -87,7 +87,7 @@ All commands are async and return `Result<T, CommandError>`; arguments are camel
 ## Phase 7 (v1.2)
 - **Wi-Fi devices:** from the router poll (`wifi_get_clients`, every 15 s while the router is
   connected, read-only). Band: `ETH*` → ethernet, `RF_2*` → 2.4ghz, `RF_5*` → 5ghz, `RF_6*` →
-  6ghz. Quality from `signalStrength`: good ≥ −65 dBm, fair ≥ −75, else poor (`null` when not
+  6ghz. Quality from `signalStrength`: good ≥ −65 dBm, fair ≥ −70 (same threshold as the rule engine), else poor (`null` when not
   reported, e.g. ethernet). Direction: router `rxStats` = device **upload**, `txStats` = device
   **download** (`rateMbps` → link speed, `throughputMbpsLast15sAvg` clamped ≥ 0 → Mbps,
   `bytes` → traffic). In Rust the name is a `DeviceName` (redacted `Debug`, `#[serde(skip)]`).
