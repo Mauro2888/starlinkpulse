@@ -2,8 +2,10 @@
 //!
 //! Pure function over the 24 h [`DiagnosticSummary`] plus a small [`RuleContext`] (dish
 //! motors, live alerts, reboot count). Thresholds are named constants documented in
-//! `docs/diagnostics.md`. Output text is English and always quotes the measured numbers.
+//! `docs/diagnostics.md`. Texts come from the EN/IT catalog (`i18n::RuleTexts`) and always
+//! quote the measured numbers, formatted per locale.
 
+use crate::i18n::{Lang, RuleTexts, dec, dec_trim, fill};
 use crate::models::{
     ActuatorSupport, AiFinding, AiFindingCategory as Cat, AiOverallHealth, AiSeverity as Sev,
     DiagnosticSummary,
@@ -64,6 +66,8 @@ pub struct RuleContext {
     pub boot_count: u32,
     /// Latency p95 during the worst local hour (`worstHours[0]`), for the congestion claim.
     pub worst_hour_p95_ms: Option<f64>,
+    /// Text language (numbers use its decimal separator).
+    pub lang: Lang,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -73,16 +77,28 @@ pub struct RulesOutcome {
     pub findings: Vec<AiFinding>,
 }
 
-fn pct(f: f64) -> String {
-    format!("{:.1} %", f * 100.0)
+/// Locale-aware formatting helpers bound to one language.
+struct Fmt {
+    lang: Lang,
 }
 
-fn deg(d: f64) -> String {
-    let a = d.abs();
-    if a >= 10.0 {
-        format!("{}°", a.round())
-    } else {
-        format!("{}°", (a * 10.0).round() / 10.0)
+impl Fmt {
+    fn pct(&self, f: f64) -> String {
+        format!("{} %", dec(self.lang, f * 100.0, 1))
+    }
+
+    /// ≥ 10° whole degrees, otherwise 0.1° (same as the UI helper).
+    fn deg(&self, d: f64) -> String {
+        let a = d.abs();
+        if a >= 10.0 {
+            format!("{}°", dec_trim(self.lang, a.round(), 0))
+        } else {
+            format!("{}°", dec_trim(self.lang, (a * 10.0).round() / 10.0, 1))
+        }
+    }
+
+    fn int(&self, v: f64) -> String {
+        dec_trim(self.lang, v.round(), 0)
     }
 }
 
@@ -129,31 +145,34 @@ fn cause_seconds(s: &DiagnosticSummary, cause: &str) -> f64 {
 
 /// Guidance identical to the UI helper: rotation = desired − actual (positive = clockwise
 /// seen from above), tilt = desired − actual (positive = up).
-pub fn alignment_actions(az_correction: Option<f64>, el_correction: Option<f64>) -> Vec<String> {
+pub fn alignment_actions(
+    lang: Lang,
+    az_correction: Option<f64>,
+    el_correction: Option<f64>,
+) -> Vec<String> {
+    let t = RuleTexts::get(lang);
+    let fm = Fmt { lang };
     let mut out = Vec::new();
     if let Some(rotate) = az_correction.filter(|d| d.abs() > ALIGN_AZ_TOL_DEG) {
-        out.push(format!(
-            "Rotate the dish {} {}, seen from above.",
-            deg(rotate),
-            if rotate > 0.0 {
-                "clockwise"
-            } else {
-                "counter-clockwise"
-            }
-        ));
+        let tpl = if rotate > 0.0 {
+            t.rotate_cw
+        } else {
+            t.rotate_ccw
+        };
+        out.push(fill(tpl, &[("deg", &fm.deg(rotate))]));
     }
     if let Some(tilt) = el_correction.filter(|d| d.abs() > ALIGN_EL_TOL_DEG) {
-        out.push(format!(
-            "Tilt the dish {} {}.",
-            deg(tilt),
-            if tilt > 0.0 { "up" } else { "down" }
-        ));
+        let tpl = if tilt > 0.0 { t.tilt_up } else { t.tilt_down };
+        out.push(fill(tpl, &[("deg", &fm.deg(tilt))]));
     }
     out
 }
 
 /// Runs every rule. Findings are sorted by severity (critical first), then category order.
 pub fn evaluate(s: &DiagnosticSummary, ctx: &RuleContext) -> RulesOutcome {
+    let lang = ctx.lang;
+    let t = RuleTexts::get(lang);
+    let fm = Fmt { lang };
     let mut f: Vec<AiFinding> = Vec::new();
     let frac = s.fraction_obstructed.unwrap_or(0.0);
     let obstructed_s = cause_seconds(s, "OBSTRUCTED");
@@ -165,12 +184,12 @@ pub fn evaluate(s: &DiagnosticSummary, ctx: &RuleContext) -> RulesOutcome {
         f.push(finding(
             Cat::Configuration,
             Sev::Info,
-            "Limited data",
-            format!(
-                "Only {} of the last 24 hours were recorded, so intermittent problems may be missed.",
-                duration(s.history_minutes as f64 * 60.0)
+            t.limited_title,
+            fill(
+                t.limited_detail,
+                &[("duration", &duration(s.history_minutes as f64 * 60.0))],
             ),
-            &["Keep StarlinkPulse running (it can stay in the tray) and run the diagnosis again later."],
+            &[t.limited_action],
         ));
     }
 
@@ -184,16 +203,15 @@ pub fn evaluate(s: &DiagnosticSummary, ctx: &RuleContext) -> RulesOutcome {
         f.push(finding(
             Cat::Obstruction,
             sev,
-            "Dish view obstructed",
-            format!(
-                "{} of the sky is obstructed and obstructions caused {} of outages in the last 24 h.",
-                pct(frac),
-                duration(obstructed_s)
+            t.obstruction_title,
+            fill(
+                t.obstruction_detail,
+                &[
+                    ("pct", &fm.pct(frac)),
+                    ("duration", &duration(obstructed_s)),
+                ],
             ),
-            &[
-                "Open the obstruction map to see where the blocked area is.",
-                "Move the dish higher or to a spot with a clear view of the sky, or trim the obstacle (trees, roof edge, walls).",
-            ],
+            &[t.obstruction_action_map, t.obstruction_action_move],
         ));
     }
 
@@ -204,36 +222,34 @@ pub fn evaluate(s: &DiagnosticSummary, ctx: &RuleContext) -> RulesOutcome {
     let off_el = s
         .elevation_correction_deg
         .is_some_and(|d| d.abs() > ALIGN_EL_TOL_DEG);
+    let az = fm.deg(s.azimuth_correction_deg.unwrap_or(0.0));
+    let el = fm.deg(s.elevation_correction_deg.unwrap_or(0.0));
     if ctx.actuators == ActuatorSupport::Unknown && (off_az || off_el) {
         f.push(finding(
             Cat::Configuration,
             Sev::Info,
-            "Dish orientation differs from the recommendation",
-            format!(
-                "The dish reports a correction of {} in direction and {} in tilt. It is not known whether this dish has motors.",
-                deg(s.azimuth_correction_deg.unwrap_or(0.0)),
-                deg(s.elevation_correction_deg.unwrap_or(0.0))
-            ),
-            &["If your dish has no motors, open the alignment helper in the app and follow its guidance."],
+            t.orientation_unknown_title,
+            fill(t.orientation_unknown_detail, &[("az", &az), ("el", &el)]),
+            &[t.orientation_unknown_action],
         ));
     }
     if ctx.actuators == ActuatorSupport::No {
-        let actions = alignment_actions(s.azimuth_correction_deg, s.elevation_correction_deg);
+        let actions = alignment_actions(lang, s.azimuth_correction_deg, s.elevation_correction_deg);
         if !actions.is_empty() {
-            let az = s.azimuth_correction_deg.unwrap_or(0.0);
-            let el = s.elevation_correction_deg.unwrap_or(0.0);
             let mut all: Vec<&str> = actions.iter().map(String::as_str).collect();
-            all.push("Use the alignment helper in the app to confirm the new position.");
+            all.push(t.alignment_confirm);
             f.push(finding(
                 Cat::Configuration,
                 Sev::Warning,
-                "Dish not aimed where Starlink recommends",
-                format!(
-                    "The dish points {} off in direction and {} off in tilt from the recommended orientation (tolerance {}° / {}°).",
-                    deg(az),
-                    deg(el),
-                    ALIGN_AZ_TOL_DEG,
-                    ALIGN_EL_TOL_DEG
+                t.misaligned_title,
+                fill(
+                    t.misaligned_detail,
+                    &[
+                        ("az", &az),
+                        ("el", &el),
+                        ("az_tol", &dec_trim(lang, ALIGN_AZ_TOL_DEG, 1)),
+                        ("el_tol", &dec_trim(lang, ALIGN_EL_TOL_DEG, 1)),
+                    ],
                 ),
                 &all,
             ));
@@ -247,23 +263,22 @@ pub fn evaluate(s: &DiagnosticSummary, ctx: &RuleContext) -> RulesOutcome {
         } else {
             0.0
         };
-        let mut detail = format!(
-            "Starlink limited your speed (POLICY_LIMIT) for {} min, {} of the recorded time. This is a plan setting (deprioritization or data limit), not an equipment fault.",
-            s.throttled_minutes,
-            pct(share)
+        let mut detail = fill(
+            t.throttle_detail,
+            &[
+                ("minutes", &s.throttled_minutes.to_string()),
+                ("pct", &fm.pct(share)),
+            ],
         );
         if share >= THROTTLE_PERMANENT_SHARE {
-            detail.push_str(" The limit is active almost all the time, which is typical of deprioritized or limited plans.");
+            detail.push_str(t.throttle_permanent);
         }
         f.push(finding(
             Cat::StarlinkNetwork,
             Sev::Info,
-            "Speed limited by your plan",
+            t.throttle_title,
             detail,
-            &[
-                "Check your plan and data usage in the Starlink app.",
-                "Schedule large downloads outside the busiest evening hours.",
-            ],
+            &[t.throttle_action_plan, t.throttle_action_schedule],
         ));
     }
 
@@ -278,19 +293,20 @@ pub fn evaluate(s: &DiagnosticSummary, ctx: &RuleContext) -> RulesOutcome {
             .collect();
         // "Clear view" only when obstruction was actually measured and is low.
         let view = if s.fraction_obstructed.is_some_and(|f| f <= OBSTRUCTION_WARN) {
-            "The dish had a clear view of the sky, so these most likely come from the satellite network or coverage."
+            t.network_clear_view
         } else {
-            "No significant obstruction was measured, so these most likely come from the satellite network or coverage."
+            t.network_no_obstruction
         };
-        let mut detail = format!(
-            "{} of outages without obstruction in the last 24 h ({}). {view}",
-            duration(network_s),
-            causes.join(", ")
+        let mut detail = fill(
+            t.network_detail,
+            &[
+                ("duration", &duration(network_s)),
+                ("causes", &causes.join(", ")),
+                ("view", view),
+            ],
         );
         if cause_seconds(s, "SKY_SEARCH") > 0.0 {
-            detail.push_str(
-                " SKY_SEARCH can also follow a restart, while the dish looks for satellites.",
-            );
+            detail.push_str(t.network_sky_search);
         }
         f.push(finding(
             Cat::StarlinkNetwork,
@@ -299,12 +315,9 @@ pub fn evaluate(s: &DiagnosticSummary, ctx: &RuleContext) -> RulesOutcome {
             } else {
                 Sev::Warning
             },
-            "Outages on the Starlink side",
+            t.network_title,
             detail,
-            &[
-                "Check status.starlink.com or the Starlink app for known outages in your area.",
-                "If it keeps happening, report it to Starlink support with the outage times.",
-            ],
+            &[t.network_action_status, t.network_action_support],
         ));
     }
 
@@ -312,17 +325,23 @@ pub fn evaluate(s: &DiagnosticSummary, ctx: &RuleContext) -> RulesOutcome {
     if ctx.boot_count >= REBOOT_WARN {
         f.push(finding(
             Cat::Hardware,
-            if ctx.boot_count >= REBOOT_CRIT { Sev::Critical } else { Sev::Warning },
-            "Frequent dish restarts",
-            format!(
-                "The dish restarted {} times in the last 24 h ({} of BOOTING outages). One restart per day for software updates is normal.",
-                ctx.boot_count,
-                duration(cause_seconds(s, "BOOTING"))
+            if ctx.boot_count >= REBOOT_CRIT {
+                Sev::Critical
+            } else {
+                Sev::Warning
+            },
+            t.reboot_title,
+            fill(
+                t.reboot_detail,
+                &[
+                    ("count", &ctx.boot_count.to_string()),
+                    ("duration", &duration(cause_seconds(s, "BOOTING"))),
+                ],
             ),
             &[
-                "Check the power supply and cable connections; avoid power strips and loose plugs.",
-                "On battery or solar setups, check that the voltage stays stable under load.",
-                "If restarts continue, contact Starlink support.",
+                t.reboot_action_power,
+                t.reboot_action_battery,
+                t.reboot_action_support,
             ],
         ));
     }
@@ -339,10 +358,9 @@ pub fn evaluate(s: &DiagnosticSummary, ctx: &RuleContext) -> RulesOutcome {
             sev = Some(Sev::Critical);
         }
         if let Some(sev) = sev {
-            let mut detail = format!(
-                "Latency p95 is {} ms and {} of pings were lost (measured by the dish, so local Wi-Fi is not the cause).",
-                p95.round(),
-                pct(drop)
+            let mut detail = fill(
+                t.slow_detail,
+                &[("p95", &fm.int(p95)), ("pct", &fm.pct(drop))],
             );
             // Claim congestion only when the worst hour clearly stands out from the day.
             let avg = s.latency_avg_ms.unwrap_or(0.0);
@@ -350,22 +368,21 @@ pub fn evaluate(s: &DiagnosticSummary, ctx: &RuleContext) -> RulesOutcome {
                 && avg > 0.0
                 && worst > CONGESTION_FACTOR * avg
             {
-                detail.push_str(&format!(
-                    " The worst hour ({}) reaches {} ms, well above the daily average of {} ms, which points to network congestion.",
-                    hours_list(&[hour]),
-                    worst.round(),
-                    avg.round()
+                detail.push_str(&fill(
+                    t.slow_congestion,
+                    &[
+                        ("hour", &hours_list(&[hour])),
+                        ("worst", &fm.int(worst)),
+                        ("avg", &fm.int(avg)),
+                    ],
                 ));
             }
             f.push(finding(
                 Cat::StarlinkNetwork,
                 sev,
-                "Slow or unstable Starlink connection",
+                t.slow_title,
                 detail,
-                &[
-                    "If problems cluster at the same hours every day, it is likely congestion in your area.",
-                    "If devices feel slower than these numbers suggest, check your Wi-Fi as well.",
-                ],
+                &[t.slow_action_hours, t.slow_action_wifi],
             ));
         }
     }
@@ -374,17 +391,17 @@ pub fn evaluate(s: &DiagnosticSummary, ctx: &RuleContext) -> RulesOutcome {
     if let Some(dbm) = s.weakest_wifi_signal_dbm.filter(|d| *d < WIFI_WARN_DBM) {
         f.push(finding(
             Cat::Wifi,
-            if dbm < WIFI_CRIT_DBM { Sev::Critical } else { Sev::Warning },
-            "Weak Wi-Fi signal",
-            format!(
-                "The weakest connected device has {} dBm (good is above {} dBm). Slowness on that device is local Wi-Fi, not Starlink.",
-                dbm.round(),
-                WIFI_WARN_DBM
+            if dbm < WIFI_CRIT_DBM {
+                Sev::Critical
+            } else {
+                Sev::Warning
+            },
+            t.wifi_title,
+            fill(
+                t.wifi_detail,
+                &[("dbm", &fm.int(dbm)), ("limit", &fm.int(WIFI_WARN_DBM))],
             ),
-            &[
-                "Move the device or the router closer, away from walls and metal objects.",
-                "Add a Starlink mesh node or use a cable for fixed devices.",
-            ],
+            &[t.wifi_action_move, t.wifi_action_mesh],
         ));
     }
 
@@ -400,15 +417,12 @@ pub fn evaluate(s: &DiagnosticSummary, ctx: &RuleContext) -> RulesOutcome {
                 Sev::Warning
             },
             if shutdown {
-                "Dish shut down from heat"
+                t.thermal_shutdown_title
             } else {
-                "Dish overheating"
+                t.thermal_title
             },
-            "The dish reports a thermal alert and limits its performance to cool down.".to_string(),
-            &[
-                "Give the dish free air flow and avoid enclosures or hot surfaces under it.",
-                "Do not cover the dish; it cools down by itself when temperatures drop.",
-            ],
+            t.thermal_detail.to_string(),
+            &[t.thermal_action_air, t.thermal_action_cover],
         ));
     }
 
@@ -433,26 +447,34 @@ pub fn evaluate(s: &DiagnosticSummary, ctx: &RuleContext) -> RulesOutcome {
                 f.push(finding(
                     Cat::StarlinkNetwork,
                     Sev::Info,
-                    "Connection healthy",
-                    format!(
-                        "Latency p95 {} ms, {} ping loss, {} outages ({}) in the last 24 h.",
-                        s.latency_p95_ms
-                            .map_or("n/a".into(), |v| v.round().to_string()),
-                        pct(s.drop_rate_avg.unwrap_or(0.0)),
-                        s.outage_count,
-                        duration(s.outage_total_s)
+                    t.healthy_title,
+                    fill(
+                        t.healthy_detail,
+                        &[
+                            (
+                                "p95",
+                                &s.latency_p95_ms
+                                    .map_or(t.not_available.to_string(), |v| fm.int(v)),
+                            ),
+                            ("pct", &fm.pct(s.drop_rate_avg.unwrap_or(0.0))),
+                            ("count", &s.outage_count.to_string()),
+                            ("duration", &duration(s.outage_total_s)),
+                        ],
                     ),
-                    &["No action needed."],
+                    &[t.healthy_action],
                 ));
             }
-            "No problems found in the last 24 hours.".to_string()
+            t.headline_none.to_string()
         }
-        (1, Some(top)) => format!("1 issue found: {}.", top.title.to_lowercase()),
-        (n, Some(top)) => format!(
-            "{n} issues found; most important: {}.",
-            top.title.to_lowercase()
+        (1, Some(top)) => fill(t.headline_one, &[("title", &top.title.to_lowercase())]),
+        (n, Some(top)) => fill(
+            t.headline_many,
+            &[
+                ("count", &n.to_string()),
+                ("title", &top.title.to_lowercase()),
+            ],
         ),
-        (_, None) => "No problems found in the last 24 hours.".to_string(),
+        (_, None) => t.headline_none.to_string(),
     };
     RulesOutcome {
         overall_health,
@@ -849,5 +871,46 @@ mod tests {
         s.fraction_obstructed = Some(0.02);
         s.throttled_minutes = 10;
         assert_eq!(evaluate(&s, &manual()), evaluate(&s, &manual()));
+    }
+
+    #[test]
+    fn italian_output_uses_comma_decimals() {
+        let mut s = healthy();
+        s.fraction_obstructed = Some(0.0412);
+        s.outages_by_cause = vec![("OBSTRUCTED".into(), 75.0)];
+        s.azimuth_correction_deg = Some(-2.5);
+        s.elevation_correction_deg = Some(1.5);
+        s.history_minutes = 600;
+        let ctx = RuleContext {
+            lang: Lang::It,
+            ..manual()
+        };
+        let o = evaluate(&s, &ctx);
+        let obs = find(&o, "Visuale della parabola ostruita").unwrap();
+        assert_eq!(obs.severity, Sev::Critical);
+        assert_eq!(
+            obs.detail,
+            "Il 4,1 % del cielo è ostruito e le ostruzioni hanno causato 1 min 15 s di interruzioni nelle ultime 24 h."
+        );
+        let al = find(&o, "Parabola non orientata come consigliato da Starlink").unwrap();
+        assert_eq!(
+            al.actions[0],
+            "Ruota la parabola di 2,5° in senso antiorario, vista dall'alto."
+        );
+        assert_eq!(al.actions[1], "Inclina la parabola di 1,5° verso l'alto.");
+        assert!(
+            find(&o, "Dati limitati")
+                .unwrap()
+                .detail
+                .contains("10 h 0 min")
+        );
+        assert_eq!(
+            o.headline,
+            "2 problemi rilevati; il più importante: visuale della parabola ostruita."
+        );
+        // Same findings in English.
+        let en = evaluate(&s, &manual());
+        assert_eq!(en.findings.len(), o.findings.len());
+        assert!(en.findings[0].detail.starts_with("4.1 % of the sky"));
     }
 }

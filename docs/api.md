@@ -27,6 +27,11 @@ All commands are async and return `Result<T, CommandError>`; arguments are camel
 | `install_update` | – | `()` (downloads, verifies signature, installs, restarts) | 5 |
 | `open_releases_page` | – | `()` (opens the fixed GitHub Releases URL from build config in the system browser; no arbitrary URLs) | 5 |
 | `set_alignment_mode` | `enabled: bool` | `()` (fast read-only polling of `get_status` every 1 s while enabled; auto-off after 10 min; emits `telemetry` + `alignment-mode` events) | 4.8 |
+| `get_location_stats` | – | `LocationStats[]` (one per location name, incl. "untagged" as name "") | 6 |
+| `rename_location` | `from: string, to: string` | `()` | 6 |
+| `delete_location` | `name: string` | `()` (removes the tag, not the data) | 6 |
+| `get_time_of_day_stats` | `days: u32` (7–90) | `TimeOfDayStats` (168 cells max, local time, DST-safe) | 6 |
+| `get_energy` | `days: u32` (1–90) | `DailyEnergy[]` newest last | 6 |
 | `set_api_key` | `key: string` | `()` (stored in OS keyring, never logged/returned) | 2 |
 | `has_api_key` | – | `boolean` | 2 |
 | `delete_api_key` | – | `()` | 2 |
@@ -67,3 +72,10 @@ All commands are async and return `Result<T, CommandError>`; arguments are camel
 - Local server: `localAiKind = "ollama"` → `POST {localAiUrl}/api/chat` with `stream:false`, `format: <same JSON schema>`; `"openai_compatible"` (LM Studio, llama.cpp) → `POST {localAiUrl}/v1/chat/completions` with `response_format: {type:"json_schema", json_schema:{name, schema, strict:true}}`. No API key. Timeout 180 s. Model list: Ollama `GET /api/tags`, OpenAI-compatible `GET /v1/models`.
 - Local URL: http/https only; non-loopback hosts allowed but the UI must warn that data leaves this computer.
 - Default `aiProvider: "off"`; `localAiUrl: "http://localhost:11434"`, `localAiKind: "ollama"`, `localAiModel: ""`.
+
+## Phase 6 (v1.1)
+- **i18n:** `settings.language` ("system" | "en" | "it"). Backend localizes notifications, tray menu, rule-engine texts and error messages; the AI payload `language` follows it. Frontend uses react-i18next with the same resolved language (backend exposes the resolved one via `get_settings` → frontend resolves "system" with `navigator.language` falling back to "en").
+- **Locations:** every per-minute row and outage is tagged with `settings.activeLocation` at ingest time. Stats are computed per tag.
+- **Time of day:** hourly aggregates kept 90 days (new table), grouped by local weekday × hour.
+- **Readiness:** computed in Rust per live snapshot from latency, jitter, drop rate and obstruction (thresholds in docs/diagnostics.md); tray tooltip shows it.
+- **Energy:** daily Wh from the existing daily table; battery runtime is computed in the UI from `battery` + recent average power.

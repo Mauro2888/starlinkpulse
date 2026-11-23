@@ -8,6 +8,8 @@
 
 use std::collections::HashMap;
 
+use crate::i18n::{Lang, NotifyTexts, fill};
+
 use crate::models::{NotificationSettings, TelemetrySnapshot};
 
 /// Minimum time between two notifications of the same kind.
@@ -86,19 +88,21 @@ pub struct Observation<'a> {
 }
 
 /// Plain-language explanation of an outage cause.
-pub fn plain_cause(cause: Option<&str>) -> &'static str {
+pub fn plain_cause(t: &NotifyTexts, cause: Option<&str>) -> &'static str {
     match cause.unwrap_or("") {
-        "OBSTRUCTED" => "something is blocking the dish's view of the sky",
-        "NO_DOWNLINK" | "NO_PINGS" | "NO_SCHEDULE" | "NETWORK_ISSUE" => {
-            "no signal from the Starlink network"
-        }
-        "BOOTING" => "the dish is restarting",
-        "SKY_SEARCH" | "SEARCHING" => "the dish is searching for satellites",
-        "THERMAL_SHUTDOWN" => "the dish is too hot and shut down",
-        "STOWED" => "the dish is stowed",
-        "MOTORS_STUCK" => "the dish motors are stuck",
-        _ => "unknown cause",
+        "OBSTRUCTED" => t.cause_obstructed,
+        "NO_DOWNLINK" | "NO_PINGS" | "NO_SCHEDULE" | "NETWORK_ISSUE" => t.cause_no_signal,
+        "BOOTING" => t.cause_booting,
+        "SKY_SEARCH" | "SEARCHING" => t.cause_searching,
+        "THERMAL_SHUTDOWN" => t.cause_thermal,
+        "STOWED" => t.cause_stowed,
+        "MOTORS_STUCK" => t.cause_motors,
+        _ => t.cause_unknown,
     }
+}
+
+fn dur(ms: i64) -> String {
+    fmt_duration(ms)
 }
 
 fn fmt_duration(ms: i64) -> String {
@@ -144,6 +148,8 @@ pub struct NotificationEngine {
     /// Highest data-cap level already notified in the current cycle: (cycle_start, 80|100).
     data_cap: Option<(i64, u8)>,
     last_sent: HashMap<NotificationKind, i64>,
+    /// Text language; `None` = the current app language.
+    lang: Option<Lang>,
 }
 
 impl NotificationEngine {
@@ -164,6 +170,7 @@ impl NotificationEngine {
             unreachable_since: self.unreachable_since,
             unreachable_alerted: self.unreachable_alerted,
             unreachable_delivered: self.unreachable_delivered,
+            lang: self.lang,
             ..Self::default()
         };
         *self = kept;
@@ -178,6 +185,15 @@ impl NotificationEngine {
         self.unreachable_alerted = false;
         self.unreachable_delivered = false;
         self.initialized = false;
+    }
+
+    /// Forces the text language (tests); production follows `i18n::current()`.
+    pub fn set_lang(&mut self, lang: Option<Lang>) {
+        self.lang = lang;
+    }
+
+    fn texts(&self) -> &'static NotifyTexts {
+        NotifyTexts::get(self.lang.unwrap_or_else(crate::i18n::current))
     }
 
     /// Reboot detection from uptime drop or bootcount change; updates the markers.
@@ -198,16 +214,14 @@ impl NotificationEngine {
         if bootcount.is_some() {
             self.last_bootcount = bootcount;
         }
+        let t = self.texts();
         rebooted.then(|| {
             Notification::new(
                 NotificationKind::Reboot,
-                "Dish restarted",
+                t.reboot_title,
                 match uptime {
-                    Some(u) => format!(
-                        "The dish rebooted (up for {}).",
-                        fmt_duration(u as i64 * 1000)
-                    ),
-                    None => "The dish rebooted.".to_string(),
+                    Some(u) => fill(t.reboot_body, &[("duration", &dur(u as i64 * 1000))]),
+                    None => t.reboot_body_plain.to_string(),
                 },
             )
         })
@@ -225,13 +239,11 @@ impl NotificationEngine {
             return Vec::new();
         }
         self.unreachable_alerted = true;
+        let t = self.texts();
         let mut n = Notification::new(
             NotificationKind::Unreachable,
-            "Starlink dish not reachable",
-            format!(
-                "StarlinkPulse has not reached the dish for {}. Check its power and cable.",
-                fmt_duration(now_ms - since)
-            ),
+            t.unreachable_title,
+            fill(t.unreachable_body, &[("duration", &dur(now_ms - since))]),
         );
         n.tag = Some(AlertTag::UnreachableStart);
         vec![n]
@@ -289,9 +301,9 @@ impl NotificationEngine {
             // Offline because it restarted: one merged message instead of "reachable again"
             // plus "restarted" (it pairs with a delivered "not reachable", if any).
             (Some(mut n), Some((since, delivered))) => {
-                n.body = format!(
-                    "The dish restarted and was offline for {}.",
-                    fmt_duration(now - since)
+                n.body = fill(
+                    self.texts().reboot_offline_body,
+                    &[("duration", &dur(now - since))],
                 );
                 n.bypass_cooldown = delivered;
                 out.push(n);
@@ -299,10 +311,10 @@ impl NotificationEngine {
             (Some(n), None) => out.push(n),
             (None, Some((since, true))) => out.push(Notification::recovery(
                 NotificationKind::Unreachable,
-                "Starlink dish reachable again",
-                format!(
-                    "The dish answers again after {}.",
-                    fmt_duration(now - since)
+                self.texts().reachable_title,
+                fill(
+                    self.texts().reachable_body,
+                    &[("duration", &dur(now - since))],
                 ),
             )),
             (None, _) => {}
@@ -331,12 +343,13 @@ impl NotificationEngine {
             }
             if !self.outage_alerted && now - start > OUTAGE_MIN_MS {
                 self.outage_alerted = true;
+                let t = self.texts();
                 let mut n = Notification::new(
                     NotificationKind::Outage,
-                    "Starlink connection lost",
-                    format!(
-                        "No internet: {}.",
-                        plain_cause(self.outage_cause.as_deref())
+                    t.outage_title,
+                    fill(
+                        t.outage_body,
+                        &[("cause", plain_cause(t, self.outage_cause.as_deref()))],
                     ),
                 );
                 n.tag = Some(AlertTag::OutageStart);
@@ -347,8 +360,11 @@ impl NotificationEngine {
             if self.outage_delivered {
                 out.push(Notification::recovery(
                     NotificationKind::Outage,
-                    "Starlink connection restored",
-                    format!("Back online after {}.", fmt_duration(now - start)),
+                    self.texts().restored_title,
+                    fill(
+                        self.texts().restored_body,
+                        &[("duration", &dur(now - start))],
+                    ),
                 ));
             }
             self.outage_alerted = false;
@@ -357,12 +373,17 @@ impl NotificationEngine {
         }
 
         if obstructed && !self.obstructed {
+            let t = self.texts();
+            let lang = self.lang.unwrap_or_else(crate::i18n::current);
             out.push(Notification::new(
                 NotificationKind::Obstruction,
-                "Dish view obstructed",
-                format!(
-                    "Something blocks the dish's view of the sky ({:.1} % obstructed). Check the obstruction map.",
-                    frac * 100.0
+                t.obstruction_title,
+                fill(
+                    t.obstruction_body,
+                    &[(
+                        "pct",
+                        &format!("{} %", crate::i18n::dec(lang, frac * 100.0, 1)),
+                    )],
                 ),
             ));
         }
@@ -371,24 +392,25 @@ impl NotificationEngine {
         if thermal && !self.thermal {
             out.push(Notification::new(
                 NotificationKind::Thermal,
-                "Dish overheating",
-                "The dish is limiting performance because it is too hot.",
+                self.texts().thermal_title,
+                self.texts().thermal_body,
             ));
         }
         self.thermal = thermal;
 
         if throttled != self.throttled {
+            let t = self.texts();
             out.push(if throttled {
                 Notification::new(
                     NotificationKind::Throttle,
-                    "Starlink speed limited",
-                    "Your plan is being deprioritized or limited by Starlink (POLICY_LIMIT).",
+                    t.throttle_on_title,
+                    t.throttle_on_body,
                 )
             } else {
                 Notification::new(
                     NotificationKind::Throttle,
-                    "Starlink speed limit lifted",
-                    "Your plan is no longer limited by Starlink.",
+                    t.throttle_off_title,
+                    t.throttle_off_body,
                 )
             });
         }
@@ -397,8 +419,8 @@ impl NotificationEngine {
         if update_pending && !self.update_pending {
             out.push(Notification::new(
                 NotificationKind::FirmwareUpdate,
-                "Starlink firmware update ready",
-                "The dish will restart to install a software update.",
+                self.texts().firmware_title,
+                self.texts().firmware_body,
             ));
         }
         self.update_pending = update_pending;
@@ -431,15 +453,22 @@ impl NotificationEngine {
             return Vec::new();
         }
         self.data_cap = Some((cycle_start_ms, level));
-        let used_gb = used_bytes / 1e9;
+        let t = self.texts();
+        let lang = self.lang.unwrap_or_else(crate::i18n::current);
         vec![Notification::new(
             NotificationKind::DataCap,
             if level == 100 {
-                "Data cap reached"
+                t.datacap100_title
             } else {
-                "80 % of data cap used"
+                t.datacap80_title
             },
-            format!("Estimated {used_gb:.1} GB of {cap:.0} GB used this billing cycle."),
+            fill(
+                t.datacap_body,
+                &[
+                    ("used", &crate::i18n::dec(lang, used_bytes / 1e9, 1)),
+                    ("cap", &crate::i18n::dec(lang, cap, 0)),
+                ],
+            ),
         )]
     }
 
@@ -928,5 +957,42 @@ mod tests {
         e.forget_dish();
         assert!(e.observe_unreachable(0).is_empty());
         assert!(e.observe_unreachable(10 * 60_000).is_empty());
+    }
+
+    #[test]
+    fn italian_notification_texts() {
+        let mut e = NotificationEngine::new();
+        e.set_lang(Some(Lang::It));
+        let mut s = snap();
+        s.obstruction.fraction_obstructed = Some(0.0);
+        observe(&mut e, &s, 0, None);
+        s.obstruction.fraction_obstructed = Some(0.0412);
+        let n = e.observe(&Observation {
+            now_ms: 3_000,
+            snapshot: Some(&up(&s, 3)),
+            outage_cause: None,
+            bootcount: None,
+        });
+        assert_eq!(n[0].title, "Visuale della parabola ostruita");
+        assert!(n[0].body.contains("(4,1 % ostruito)"), "{}", n[0].body);
+        let cap = e.observe_usage(1, 85.5e9, Some(100.0));
+        assert_eq!(cap[0].title, "80 % del limite dati usato");
+        assert_eq!(
+            cap[0].body,
+            "Stimati 85,5 GB su 100 GB usati in questo ciclo di fatturazione."
+        );
+        e.reset();
+        let mut r = snap();
+        r.uptime_s = Some(30);
+        let n = e.observe(&Observation {
+            now_ms: 600_000,
+            snapshot: Some(&r),
+            outage_cause: None,
+            bootcount: None,
+        });
+        assert_eq!(
+            n[0].body, "La parabola si è riavviata (attiva da 30 s).",
+            "language survives reset"
+        );
     }
 }

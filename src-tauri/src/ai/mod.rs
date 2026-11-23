@@ -15,8 +15,10 @@ use crate::rules::{self, RuleContext};
 use crate::state::{AppState, lock_db};
 use crate::time::now_ms;
 
-/// Output language passed to the model (UI is English for now).
-pub const LANGUAGE: &str = "en";
+/// Output language for the advisor: the resolved app language ("en" / "it").
+pub fn language() -> &'static str {
+    crate::i18n::current().code()
+}
 
 /// Minimum minutes of history required for any diagnosis.
 pub const MIN_HISTORY_MINUTES: u32 = 60;
@@ -48,11 +50,12 @@ async fn gather(state: &AppState) -> Result<(DiagnosticSummary, RuleContext), Ap
             capabilities: Some(&caps),
             snapshot: snapshot.as_ref(),
             wifi_clients: &wifi,
-            language: LANGUAGE,
+            language: language(),
         },
         &chrono::Local,
     );
     let ctx = RuleContext {
+        lang: crate::i18n::current(),
         actuators: caps.actuators,
         alerts: snapshot.map(|s| s.alerts).unwrap_or_default(),
         boot_count: outages.iter().filter(|o| o.cause == "BOOTING").count() as u32,

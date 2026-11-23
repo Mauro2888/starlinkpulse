@@ -458,6 +458,76 @@ impl MockClient {
         (daily, usage)
     }
 
+    /// Hourly rows and tagged outages for local days `skip_days+1 ..= days` ago, older than
+    /// the per-second backfill. Two plausible locations: "Balcony" (days 16-30 ago, more
+    /// obstruction and loss) and "Roof" (days 3-15 ago). Evening hours are congested; the app
+    /// is not always running (some hours missing).
+    pub fn hourly_backfill(
+        &self,
+        days: u32,
+        skip_days: u32,
+    ) -> (Vec<crate::storage::HourRow>, Vec<(DishEvent, &'static str)>) {
+        use chrono::Datelike;
+        if self.p.offline {
+            return (Vec::new(), Vec::new());
+        }
+        let tz = chrono::Local;
+        let today = crate::usage::local_date(now_ms(), &tz);
+        let mut rows = Vec::new();
+        let mut events = Vec::new();
+        for back in (skip_days as i64 + 1)..=(days as i64) {
+            let Some(date) = today.checked_sub_signed(chrono::Duration::days(back)) else {
+                continue;
+            };
+            let location = if back > 15 { "Balcony" } else { "Roof" };
+            let balcony = location == "Balcony";
+            let midnight = crate::usage::local_midnight_ms(date, &tz);
+            let key = crate::usage::date_key(date);
+            for hour in 0..24u8 {
+                let seed = key * 24 + hour as i64;
+                // App closed at night on some days.
+                if (1..6).contains(&hour) && unit(seed, 400) < 0.6 {
+                    continue;
+                }
+                let samples = (3600.0 * (0.6 + 0.4 * unit(seed, 401))) as u32;
+                let evening = if (19..=23).contains(&hour) {
+                    1.0 + 0.45 * unit(seed, 402)
+                } else {
+                    1.0
+                };
+                let latency =
+                    self.p.base_latency * evening + self.p.jitter * 0.3 * gauss(seed, 403);
+                let drop = (if balcony { 0.012 } else { 0.003 }) * evening + self.p.drop_prob * 0.2;
+                let start = midnight + hour as i64 * 3_600_000;
+                rows.push(crate::storage::HourRow {
+                    date_key: key,
+                    hour,
+                    location: location.to_string(),
+                    weekday: date.weekday().num_days_from_monday() as u8,
+                    start_ms: start,
+                    end_ms: start + 3_600_000,
+                    minutes: samples / 60,
+                    samples,
+                    latency_avg_ms: Some(latency.max(15.0)),
+                    latency_p95_ms: Some((latency * 1.35).max(18.0)),
+                    drop_rate_avg: Some(drop),
+                    downlink_avg_bps: Some(self.p.dl_mean_bps * 1.4 / evening),
+                    power_avg_w: self.p.power_w.map(|w| w + 2.0 * gauss(seed, 404)),
+                    power_max_w: self.p.power_w.map(|w| w * 1.35 + 3.0 * unit(seed, 405)),
+                    fraction_obstructed: Some(if balcony { 0.042 } else { 0.006 }),
+                });
+            }
+            let from_s = midnight / 1000;
+            for mut o in self.outages_between(from_s, from_s + 86_400, i64::MIN / 4) {
+                if balcony && unit(o.start_ms, 406) < 0.6 {
+                    o.cause = "OBSTRUCTED".into();
+                }
+                events.push((o, location));
+            }
+        }
+        (rows, events)
+    }
+
     fn obstruction_value(&self, row: u32, col: u32) -> Option<f32> {
         let c = (MAP_SIZE as f64 - 1.0) / 2.0;
         let (dx, dy) = (col as f64 - c, c - row as f64);
@@ -577,6 +647,9 @@ impl StarlinkClient for MockClient {
             disablement_code: Some("OKAY".into()),
             is_heating: Some(self.snow_melt() == SnowMeltMode::AlwaysOn),
             alerts,
+            // Filled by the live poll (needs the recent sample window).
+            jitter_ms: None,
+            readiness: None,
         };
         Ok(DishStatus {
             snapshot,

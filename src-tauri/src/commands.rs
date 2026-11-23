@@ -317,6 +317,131 @@ pub async fn set_alignment_mode(state: State<'_, Arc<AppState>>, enabled: bool) 
     Ok(())
 }
 
+// ---- Phase 6 ----------------------------------------------------------------
+
+async fn on_db<T: Send + 'static>(
+    state: &AppState,
+    f: impl FnOnce(&mut crate::storage::Db) -> Result<T, rusqlite::Error> + Send + 'static,
+) -> Result<T, AppError> {
+    let db = state.current_db().await;
+    tokio::task::spawn_blocking(move || f(&mut lock_db(&db)))
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?
+        .map_err(AppError::from)
+}
+
+pub async fn location_stats(
+    state: &AppState,
+) -> Result<Vec<crate::models::LocationStats>, AppError> {
+    on_db(state, |db| db.location_stats()).await
+}
+
+/// Renames a location tag (`from` may be "" to tag untagged data); keeps the active
+/// location setting in sync.
+pub async fn rename_location_impl(state: &AppState, from: &str, to: &str) -> Result<(), AppError> {
+    let from = from.trim().to_string();
+    if from.chars().count() > 40 || from.chars().any(char::is_control) {
+        return Err(AppError::InvalidInput("invalid location name".into()));
+    }
+    let to = crate::settings::validate_location_name(to)?;
+    move_location(state, from, to).await
+}
+
+/// Removes a location tag (the data stays, untagged).
+pub async fn delete_location_impl(state: &AppState, name: &str) -> Result<(), AppError> {
+    let name = crate::settings::validate_location_name(name)?;
+    move_location(state, name, String::new()).await
+}
+
+async fn move_location(state: &AppState, from: String, to: String) -> Result<(), AppError> {
+    let (f, t) = (from.clone(), to.clone());
+    on_db(state, move |db| db.rename_location(&f, &t)).await?;
+    let settings = state.settings.read().await.clone();
+    if settings.active_location.as_deref() == Some(from.as_str()) {
+        let active = (!to.is_empty()).then_some(to);
+        state
+            .update_settings(Settings {
+                active_location: active,
+                ..settings
+            })
+            .await?;
+    }
+    Ok(())
+}
+
+pub async fn time_of_day_stats(
+    state: &AppState,
+    days: u32,
+) -> Result<crate::models::TimeOfDayStats, AppError> {
+    if !(7..=90).contains(&days) {
+        return Err(AppError::InvalidInput(
+            "days must be between 7 and 90".into(),
+        ));
+    }
+    let dates = crate::insights::last_dates(now_ms(), days, &chrono::Local);
+    let from = dates
+        .first()
+        .map(|d| crate::usage::date_key(*d))
+        .unwrap_or(0);
+    let rows = on_db(state, move |db| db.hourly_since(from)).await?;
+    Ok(crate::insights::time_of_day(&rows, days))
+}
+
+pub async fn energy(
+    state: &AppState,
+    days: u32,
+) -> Result<Vec<crate::models::DailyEnergy>, AppError> {
+    if !(1..=90).contains(&days) {
+        return Err(AppError::InvalidInput(
+            "days must be between 1 and 90".into(),
+        ));
+    }
+    let dates = crate::insights::last_dates(now_ms(), days, &chrono::Local);
+    let from = dates
+        .first()
+        .map(|d| crate::usage::date_key(*d))
+        .unwrap_or(0);
+    let rows = on_db(state, move |db| db.hourly_since(from)).await?;
+    Ok(crate::insights::daily_energy(&rows, &dates, &chrono::Local))
+}
+
+#[tauri::command]
+pub async fn get_location_stats(
+    state: State<'_, Arc<AppState>>,
+) -> CmdResult<Vec<crate::models::LocationStats>> {
+    Ok(location_stats(&state).await?)
+}
+
+#[tauri::command]
+pub async fn rename_location(
+    state: State<'_, Arc<AppState>>,
+    from: String,
+    to: String,
+) -> CmdResult<()> {
+    Ok(rename_location_impl(&state, &from, &to).await?)
+}
+
+#[tauri::command]
+pub async fn delete_location(state: State<'_, Arc<AppState>>, name: String) -> CmdResult<()> {
+    Ok(delete_location_impl(&state, &name).await?)
+}
+
+#[tauri::command]
+pub async fn get_time_of_day_stats(
+    state: State<'_, Arc<AppState>>,
+    days: u32,
+) -> CmdResult<crate::models::TimeOfDayStats> {
+    Ok(time_of_day_stats(&state, days).await?)
+}
+
+#[tauri::command]
+pub async fn get_energy(
+    state: State<'_, Arc<AppState>>,
+    days: u32,
+) -> CmdResult<Vec<crate::models::DailyEnergy>> {
+    Ok(energy(&state, days).await?)
+}
+
 #[tauri::command]
 pub async fn get_last_ai_report(state: State<'_, Arc<AppState>>) -> CmdResult<Option<AiReport>> {
     let db = state.current_db().await;
@@ -433,7 +558,9 @@ pub async fn send_test_notification(state: State<'_, Arc<AppState>>) -> CmdResul
     sink.notify(&crate::notify::Notification {
         kind: crate::notify::NotificationKind::Test,
         title: "StarlinkPulse".into(),
-        body: "Notifications are working.".into(),
+        body: crate::i18n::NotifyTexts::get(crate::i18n::current())
+            .test_body
+            .into(),
         bypass_cooldown: true,
         tag: None,
     });

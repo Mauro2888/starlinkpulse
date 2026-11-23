@@ -73,6 +73,24 @@ pub fn validate(mut s: Settings) -> Result<Settings, AppError> {
             "livePollIntervalS must be between {MIN_POLL_S} and {MAX_POLL_S}"
         )));
     }
+    s.active_location = match s.active_location.take() {
+        None => None,
+        Some(n) if n.trim().is_empty() => None,
+        Some(n) => Some(validate_location_name(&n)?),
+    };
+    if let Some(b) = &s.battery {
+        let ok = b.capacity_ah.is_finite()
+            && (1.0..=100_000.0).contains(&b.capacity_ah)
+            && b.voltage.is_finite()
+            && (1.0..=1_000.0).contains(&b.voltage)
+            && b.usable_fraction.is_finite()
+            && (0.1..=1.0).contains(&b.usable_fraction);
+        if !ok {
+            return Err(AppError::InvalidInput(
+                "battery: capacityAh 1–100000, voltage 1–1000, usableFraction 0.1–1".into(),
+            ));
+        }
+    }
     if !(1..=28).contains(&s.billing_cycle_day) {
         return Err(AppError::InvalidInput(
             "billingCycleDay must be between 1 and 28".into(),
@@ -120,6 +138,18 @@ pub fn validate(mut s: Settings) -> Result<Settings, AppError> {
         ));
     }
     Ok(s)
+}
+
+/// Validates a location name: trimmed, 1–40 characters, no control characters.
+pub fn validate_location_name(name: &str) -> Result<String, AppError> {
+    let n = name.trim();
+    let len = n.chars().count();
+    if !(1..=40).contains(&len) || n.chars().any(char::is_control) {
+        return Err(AppError::InvalidInput(
+            "location names must be 1–40 characters without control characters".into(),
+        ));
+    }
+    Ok(n.to_string())
 }
 
 /// True when the dish/router connection must be re-established after a settings change.
@@ -194,6 +224,52 @@ mod tests {
             ..Default::default()
         };
         assert!(validate(bad_dish).is_err(), "dish address stays mandatory");
+    }
+
+    #[test]
+    fn phase6_settings() {
+        use crate::models::{AppLanguage, BatteryConfig};
+        let d = Settings::default();
+        assert_eq!(d.language, AppLanguage::System);
+        assert_eq!(d.active_location, None);
+        assert_eq!(d.battery, None);
+        let v = serde_json::to_value(&d).unwrap();
+        assert_eq!(v["language"], "system");
+        assert!(v["activeLocation"].is_null() && v["battery"].is_null());
+        let ok = Settings {
+            active_location: Some("  Roof ".into()),
+            battery: Some(BatteryConfig {
+                capacity_ah: 100.0,
+                voltage: 12.8,
+                usable_fraction: 0.8,
+            }),
+            language: AppLanguage::It,
+            ..Default::default()
+        };
+        let v = validate(ok).unwrap();
+        assert_eq!(v.active_location.as_deref(), Some("Roof"));
+        let blank = Settings {
+            active_location: Some("  ".into()),
+            ..Default::default()
+        };
+        assert_eq!(validate(blank).unwrap().active_location, None);
+        for bad in ["x".repeat(41), "a\u{7}b".to_string()] {
+            let s = Settings {
+                active_location: Some(bad),
+                ..Default::default()
+            };
+            assert!(validate(s).is_err());
+        }
+        let bad_battery = Settings {
+            battery: Some(BatteryConfig {
+                capacity_ah: 100.0,
+                voltage: 12.0,
+                usable_fraction: 0.05,
+            }),
+            ..Default::default()
+        };
+        assert!(validate(bad_battery).is_err());
+        assert_eq!(validate_location_name(" Balcony ").unwrap(), "Balcony");
     }
 
     #[test]

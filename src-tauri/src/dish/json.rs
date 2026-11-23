@@ -208,6 +208,9 @@ pub fn parse_status(s: &Value, now_ms: i64) -> DishStatus {
         disablement_code: enum_name(s.get("disablementCode")),
         is_heating: Some(alerts.iter().any(|a| a == "isHeating")),
         alerts,
+        // Filled by the live poll (needs the recent sample window).
+        jitter_ms: None,
+        readiness: None,
     };
 
     let actuators = match actuators_from(s.get("hasActuators")) {

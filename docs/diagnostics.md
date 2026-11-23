@@ -59,3 +59,30 @@ Same convention as the UI alignment helper:
 
 The thresholds are named constants at the top of `src-tauri/src/rules.rs`. When you change
 one, update this table and the boundary tests in the same file.
+
+## Live readiness (videoCall / gaming / streaming)
+
+Computed in Rust (`src-tauri/src/readiness.rs`) for every live snapshot, over the live
+samples of the last 2 minutes:
+
+- **Latency:** the mean of the samples that have a latency.
+- **Jitter (`jitterMs`):** the mean |Δ latency| between consecutive samples. Reported only
+  once there are at least 10 samples; until then it is `null`, and so is the readiness.
+- **Drop rate:** the mean ping drop rate over the window.
+
+| Use | Good | Fair | Poor |
+|---|---|---|---|
+| Gaming | latency < 50 ms, jitter < 10 ms, drop < 0.5 % | latency < 100 ms, jitter < 30 ms, drop < 2 % | otherwise |
+| Video call | latency < 100 ms, jitter < 30 ms, drop < 1 % | latency < 200 ms, jitter < 50 ms, drop < 3 % | otherwise |
+| Streaming (buffered) | drop < 2 % | drop < 5 % | otherwise |
+
+- While `currentlyObstructed` is true, no use can be rated "good" (at most "fair").
+- During an outage (no latency and drop rate 100 %), every use is "poor".
+- The tray tooltip shows the rating, e.g. `Connected · 26 ms · Video ✓ · Gaming ~ · Streaming ✓`
+  (✓ good, ~ fair, ✗ poor).
+
+## Languages
+
+All rule texts come from the EN/IT catalog in `src-tauri/src/i18n.rs` (`RuleTexts`). Numbers
+use the locale's decimal separator: `4.1 %` in English, `4,1 %` in Italian. The thresholds are
+the same in every language.

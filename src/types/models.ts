@@ -46,6 +46,9 @@ export interface TelemetrySnapshot {
   uplinkBps: number | null;
   /** Latest dish power draw in watts (from history samples), if available. */
   powerW: number | null;
+  /** Approx. jitter = mean |Δlatency| between consecutive live samples over ~2 min. */
+  jitterMs: number | null;
+  readiness: Readiness | null;
   popPingLatencyMs: number | null;
   popPingDropRate: number | null;
   snrAboveNoiseFloor: boolean | null;
@@ -144,6 +147,12 @@ export interface Settings {
   closeToTray: boolean;
   /** Start StarlinkPulse when the user logs in. Default false. */
   launchAtLogin: boolean;
+  /** UI + notifications + rule texts language. "system" follows the OS. */
+  language: AppLanguage;
+  /** Name of the current dish location (e.g. "Roof"); null = untagged. */
+  activeLocation: string | null;
+  /** Optional battery for off-grid runtime estimates; null = not configured. */
+  battery: BatteryConfig | null;
   notifications: NotificationSettings;
   /** Monthly data cap in GB for usage alerts; null = none. */
   dataCapGb: number | null;
@@ -292,4 +301,64 @@ export interface AlignmentModeEvent {
   enabled: boolean;
   /** Seconds until automatic stop. */
   remainingS: number;
+}
+
+// ---- Phase 6 (v1.1): i18n, locations, time-of-day, readiness, energy ----
+
+export type AppLanguage = "system" | "en" | "it";
+
+export type ReadinessLevel = "good" | "fair" | "poor";
+
+export interface Readiness {
+  videoCall: ReadinessLevel;
+  gaming: ReadinessLevel;
+  streaming: ReadinessLevel;
+}
+
+export interface BatteryConfig {
+  capacityAh: number;
+  voltage: number;
+  /** Usable fraction 0.1–1 (e.g. 0.8 for LiFePO4 at 80 % DoD). */
+  usableFraction: number;
+}
+
+export interface LocationStats {
+  name: string;
+  firstSeenMs: number;
+  lastSeenMs: number;
+  coveredS: number;
+  outageCount: number;
+  outageS: number;
+  outagesPerHour: number | null;
+  fractionObstructedAvg: number | null;
+  latencyAvgMs: number | null;
+  latencyP95Ms: number | null;
+  dropRateAvg: number | null;
+  downlinkAvgBps: number | null;
+}
+
+export interface HourCell {
+  /** 0 = Monday … 6 = Sunday (local time). */
+  weekday: number;
+  /** 0–23 local time. */
+  hour: number;
+  minutes: number;
+  latencyAvgMs: number | null;
+  latencyP95Ms: number | null;
+  dropRateAvg: number | null;
+  downlinkAvgBps: number | null;
+}
+
+export interface TimeOfDayStats {
+  days: number;
+  cells: HourCell[];
+}
+
+export interface DailyEnergy {
+  /** Local midnight, Unix ms. */
+  dayMs: number;
+  wh: number;
+  avgW: number | null;
+  peakW: number | null;
+  coveredS: number;
 }

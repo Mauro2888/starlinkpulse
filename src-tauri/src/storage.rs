@@ -247,6 +247,27 @@ CREATE TABLE usage_local_day (
     upload_bytes REAL NOT NULL
 );
 "#,
+    r#"
+-- Phase 6: location tags, obstruction per minute, hourly aggregates (local time, 90 days).
+ALTER TABLE samples ADD COLUMN location TEXT NOT NULL DEFAULT '';
+ALTER TABLE minutes ADD COLUMN location TEXT NOT NULL DEFAULT '';
+ALTER TABLE minutes ADD COLUMN fraction_obstructed REAL;
+ALTER TABLE events ADD COLUMN location TEXT NOT NULL DEFAULT '';
+CREATE TABLE hourly (
+    date_key INTEGER NOT NULL,
+    hour INTEGER NOT NULL,
+    location TEXT NOT NULL DEFAULT '',
+    weekday INTEGER NOT NULL,
+    start_ms INTEGER NOT NULL,
+    end_ms INTEGER NOT NULL,
+    minutes INTEGER NOT NULL,
+    samples INTEGER NOT NULL,
+    latency_avg_ms REAL, latency_p95_ms REAL, drop_rate_avg REAL, downlink_avg_bps REAL,
+    power_avg_w REAL, power_max_w REAL, fraction_obstructed REAL,
+    PRIMARY KEY (date_key, hour, location)
+);
+CREATE INDEX hourly_location ON hourly (location);
+"#,
 ];
 
 /// Schema version whose migration also needs the Rust step [`rekey_usage`].
@@ -310,6 +331,10 @@ pub fn detect_reboot(
 #[derive(Debug)]
 pub struct Db {
     conn: Connection,
+    /// Location tag applied to rows written by the next ingest (`""` = untagged).
+    location: String,
+    /// Latest sky fraction obstructed, stored with the minutes of the next ingest.
+    obstruction: Option<f64>,
 }
 
 impl Db {
@@ -325,7 +350,11 @@ impl Db {
     }
 
     fn init(conn: Connection) -> Result<Self, rusqlite::Error> {
-        let mut db = Self { conn };
+        let mut db = Self {
+            conn,
+            location: String::new(),
+            obstruction: None,
+        };
         db.migrate()?;
         Ok(db)
     }
@@ -335,6 +364,8 @@ impl Db {
     fn open_in_memory_at_version(version: u32) -> Result<Self, rusqlite::Error> {
         let mut db = Self {
             conn: Connection::open_in_memory()?,
+            location: String::new(),
+            obstruction: None,
         };
         db.conn.execute_batch(
             "CREATE TABLE schema_version (version INTEGER NOT NULL);
@@ -470,8 +501,8 @@ impl Db {
         {
             let mut ins = tx.prepare_cached(
                 "INSERT OR IGNORE INTO samples
-                 (ts_s, latency_ms, drop_rate, downlink_bps, uplink_bps, power_w)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                 (ts_s, latency_ms, drop_rate, downlink_bps, uplink_bps, power_w, location)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             )?;
             for s in &samples {
                 let changed = ins.execute(params![
@@ -480,7 +511,8 @@ impl Db {
                     s.drop_rate,
                     s.downlink_bps,
                     s.uplink_bps,
-                    s.power_w
+                    s.power_w,
+                    self.location
                 ])?;
                 if changed > 0 {
                     inserted.push(*s);
@@ -499,13 +531,14 @@ impl Db {
             let bucket = load_samples(&tx, m / 1000, m / 1000 + 60)?;
             points.push(aggregate_bucket(m, &bucket));
         }
-        upsert_minutes(&tx, &points)?;
+        upsert_minutes(&tx, &points, &self.location, self.obstruction)?;
+        recompute_hours(&tx, &minutes)?;
 
         let mut all_events: Vec<(DishEvent, bool)> = Vec::new();
         all_events.extend(h.outages.iter().cloned().map(|e| (e, true)));
         all_events.extend(h.events.iter().cloned().map(|e| (e, true)));
         all_events.extend(h.other_events.iter().cloned().map(|e| (e, false)));
-        upsert_events(&tx, &all_events)?;
+        upsert_events(&tx, &all_events, &self.location)?;
 
         tx.execute(
             "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
@@ -542,9 +575,11 @@ impl Db {
         now_ms: i64,
     ) -> Result<(), rusqlite::Error> {
         let tx = self.conn.transaction()?;
-        upsert_minutes(&tx, points)?;
+        upsert_minutes(&tx, points, &self.location, self.obstruction)?;
+        let touched: BTreeSet<i64> = points.iter().map(|p| p.minute_ms).collect();
+        recompute_hours(&tx, &touched)?;
         let evs: Vec<(DishEvent, bool)> = events.iter().cloned().map(|e| (e, true)).collect();
-        upsert_events(&tx, &evs)?;
+        upsert_events(&tx, &evs, &self.location)?;
         let days: BTreeSet<i64> = points.iter().map(|p| day_floor(p.minute_ms)).collect();
         recompute_days(&tx, &days, now_ms)?;
         prune(&tx, now_ms)?;
@@ -681,6 +716,150 @@ impl Db {
             [since],
             |r| Ok((r.get::<_, i64>(0)? as f64, r.get(1)?, r.get(2)?)),
         )
+    }
+
+    /// Location tag and obstruction stored with the rows of the next ingest.
+    pub fn set_context(&mut self, location: Option<&str>, obstruction: Option<f64>) {
+        self.location = location.unwrap_or("").to_string();
+        self.obstruction = obstruction.filter(|f| f.is_finite());
+    }
+
+    /// Hourly rows with `date_key >= from_key`.
+    pub fn hourly_since(&self, from_key: i64) -> Result<Vec<HourRow>, rusqlite::Error> {
+        let mut stmt = self.conn.prepare_cached(&format!(
+            "SELECT {HOUR_COLUMNS} FROM hourly WHERE date_key >= ?1 ORDER BY date_key, hour"
+        ))?;
+        let rows = stmt.query_map([from_key], read_hour_row)?;
+        rows.collect()
+    }
+
+    /// Inserts hourly rows that do not exist yet (mock backfill).
+    pub fn insert_hourly_if_missing(&mut self, rows: &[HourRow]) -> Result<(), rusqlite::Error> {
+        let tx = self.conn.transaction()?;
+        for r in rows {
+            let exists: bool = tx.query_row(
+                "SELECT COUNT(*) > 0 FROM hourly WHERE date_key = ?1 AND hour = ?2",
+                params![r.date_key, r.hour],
+                |x| x.get(0),
+            )?;
+            if !exists {
+                upsert_hour(&tx, r)?;
+            }
+        }
+        tx.commit()
+    }
+
+    /// Inserts outages tagged with `location` (mock backfill of older days).
+    pub fn insert_outages_at(
+        &mut self,
+        events: &[DishEvent],
+        location: &str,
+    ) -> Result<(), rusqlite::Error> {
+        let tx = self.conn.transaction()?;
+        let evs: Vec<(DishEvent, bool)> = events.iter().cloned().map(|e| (e, true)).collect();
+        upsert_events(&tx, &evs, location)?;
+        tx.commit()
+    }
+
+    /// Per-location coverage/quality (hourly, 90 d) and outages (events, 90 d).
+    pub fn location_stats(&self) -> Result<Vec<crate::models::LocationStats>, rusqlite::Error> {
+        let mut by: std::collections::BTreeMap<String, Vec<HourRow>> = Default::default();
+        for r in self.hourly_since(0)? {
+            by.entry(r.location.clone()).or_default().push(r);
+        }
+        let mut outages: std::collections::BTreeMap<String, (u32, f64, i64, i64)> =
+            Default::default();
+        {
+            let mut stmt = self.conn.prepare_cached(
+                "SELECT location, COUNT(*), COALESCE(SUM(duration_ms), 0), MIN(start_ms),
+                        MAX(start_ms + duration_ms)
+                 FROM events WHERE is_outage = 1 GROUP BY location",
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, u32>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                ))
+            })?;
+            for row in rows {
+                let (loc, n, ms, first, last) = row?;
+                outages.insert(loc, (n, ms as f64 / 1000.0, first, last));
+            }
+        }
+        let names: BTreeSet<String> = by.keys().chain(outages.keys()).cloned().collect();
+        Ok(names
+            .into_iter()
+            .map(|name| {
+                let rows = by.get(&name).map(Vec::as_slice).unwrap_or(&[]);
+                let merged = merge_hour_rows(rows);
+                let (count, out_s, of, ol) =
+                    outages
+                        .get(&name)
+                        .copied()
+                        .unwrap_or((0, 0.0, i64::MAX, i64::MIN));
+                let covered = merged.as_ref().map_or(0.0, |m| m.samples as f64);
+                crate::models::LocationStats {
+                    first_seen_ms: merged.as_ref().map_or(of, |m| m.start_ms.min(of)),
+                    last_seen_ms: merged.as_ref().map_or(ol, |m| m.end_ms.max(ol)),
+                    covered_s: covered,
+                    outage_count: count,
+                    outage_s: out_s,
+                    outages_per_hour: (covered >= 3600.0)
+                        .then(|| count as f64 / (covered / 3600.0)),
+                    fraction_obstructed_avg: merged.as_ref().and_then(|m| m.fraction_obstructed),
+                    latency_avg_ms: merged.as_ref().and_then(|m| m.latency_avg_ms),
+                    latency_p95_ms: merged.as_ref().and_then(|m| m.latency_p95_ms),
+                    drop_rate_avg: merged.as_ref().and_then(|m| m.drop_rate_avg),
+                    downlink_avg_bps: merged.as_ref().and_then(|m| m.downlink_avg_bps),
+                    name,
+                }
+            })
+            .collect())
+    }
+
+    /// Moves every row tagged `from` to `to` (`""` = untagged), merging hourly buckets that
+    /// already exist under `to`.
+    pub fn rename_location(&mut self, from: &str, to: &str) -> Result<(), rusqlite::Error> {
+        if from == to {
+            return Ok(());
+        }
+        let tx = self.conn.transaction()?;
+        for table in ["samples", "minutes", "events"] {
+            tx.execute(
+                &format!("UPDATE {table} SET location = ?2 WHERE location = ?1"),
+                params![from, to],
+            )?;
+        }
+        let rows: Vec<HourRow> = {
+            let mut stmt = tx.prepare(&format!(
+                "SELECT {HOUR_COLUMNS} FROM hourly WHERE location = ?1"
+            ))?;
+            stmt.query_map([from], read_hour_row)?
+                .collect::<Result<_, _>>()?
+        };
+        for mut r in rows {
+            let existing: Option<HourRow> = tx
+                .query_row(
+                    &format!("SELECT {HOUR_COLUMNS} FROM hourly WHERE date_key = ?1 AND hour = ?2 AND location = ?3"),
+                    params![r.date_key, r.hour, to],
+                    read_hour_row,
+                )
+                .optional()?;
+            tx.execute(
+                "DELETE FROM hourly WHERE date_key = ?1 AND hour = ?2 AND location = ?3",
+                params![r.date_key, r.hour, from],
+            )?;
+            r.location = to.to_string();
+            let merged = match existing {
+                Some(e) => merge_hour_rows(&[e, r]).unwrap_or_default(),
+                None => r,
+            };
+            upsert_hour(&tx, &merged)?;
+        }
+        tx.commit()
     }
 
     pub fn meta_get(&self, key: &str) -> Result<Option<String>, rusqlite::Error> {
@@ -822,6 +1001,198 @@ fn add_usage(
     Ok(())
 }
 
+/// One hourly aggregate row (local date + hour + location).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct HourRow {
+    pub date_key: i64,
+    pub hour: u8,
+    pub location: String,
+    pub weekday: u8,
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub minutes: u32,
+    pub samples: u32,
+    pub latency_avg_ms: Option<f64>,
+    pub latency_p95_ms: Option<f64>,
+    pub drop_rate_avg: Option<f64>,
+    pub downlink_avg_bps: Option<f64>,
+    pub power_avg_w: Option<f64>,
+    pub power_max_w: Option<f64>,
+    pub fraction_obstructed: Option<f64>,
+}
+
+/// Sample-weighted mean of optional values.
+fn wmean(items: &[(Option<f64>, f64)]) -> Option<f64> {
+    let (s, w) = items
+        .iter()
+        .filter_map(|(v, w)| v.map(|v| (v * w, *w)))
+        .fold((0.0, 0.0), |(a, b), (x, y)| (a + x, b + y));
+    (w > 0.0).then(|| s / w)
+}
+
+/// Merges hourly rows of the same bucket (weighted by samples).
+pub fn merge_hour_rows(rows: &[HourRow]) -> Option<HourRow> {
+    let first = rows.first()?;
+    let w = |f: fn(&HourRow) -> Option<f64>| -> Vec<(Option<f64>, f64)> {
+        rows.iter().map(|r| (f(r), r.samples as f64)).collect()
+    };
+    Some(HourRow {
+        date_key: first.date_key,
+        hour: first.hour,
+        location: first.location.clone(),
+        weekday: first.weekday,
+        start_ms: rows
+            .iter()
+            .map(|r| r.start_ms)
+            .min()
+            .unwrap_or(first.start_ms),
+        end_ms: rows.iter().map(|r| r.end_ms).max().unwrap_or(first.end_ms),
+        minutes: rows.iter().map(|r| r.minutes).sum(),
+        samples: rows.iter().map(|r| r.samples).sum(),
+        latency_avg_ms: wmean(&w(|r| r.latency_avg_ms)),
+        latency_p95_ms: wmean(&w(|r| r.latency_p95_ms)),
+        drop_rate_avg: wmean(&w(|r| r.drop_rate_avg)),
+        downlink_avg_bps: wmean(&w(|r| r.downlink_avg_bps)),
+        power_avg_w: wmean(&w(|r| r.power_avg_w)),
+        power_max_w: rows.iter().filter_map(|r| r.power_max_w).reduce(f64::max),
+        fraction_obstructed: wmean(&w(|r| r.fraction_obstructed)),
+    })
+}
+
+fn upsert_hour(conn: &Connection, r: &HourRow) -> Result<(), rusqlite::Error> {
+    conn.prepare_cached(
+        "INSERT OR REPLACE INTO hourly
+         (date_key, hour, location, weekday, start_ms, end_ms, minutes, samples, latency_avg_ms,
+          latency_p95_ms, drop_rate_avg, downlink_avg_bps, power_avg_w, power_max_w,
+          fraction_obstructed)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+    )?
+    .execute(params![
+        r.date_key,
+        r.hour,
+        r.location,
+        r.weekday,
+        r.start_ms,
+        r.end_ms,
+        r.minutes,
+        r.samples,
+        r.latency_avg_ms,
+        r.latency_p95_ms,
+        r.drop_rate_avg,
+        r.downlink_avg_bps,
+        r.power_avg_w,
+        r.power_max_w,
+        r.fraction_obstructed
+    ])?;
+    Ok(())
+}
+
+fn read_hour_row(r: &rusqlite::Row<'_>) -> Result<HourRow, rusqlite::Error> {
+    Ok(HourRow {
+        date_key: r.get(0)?,
+        hour: r.get(1)?,
+        location: r.get(2)?,
+        weekday: r.get(3)?,
+        start_ms: r.get(4)?,
+        end_ms: r.get(5)?,
+        minutes: r.get(6)?,
+        samples: r.get(7)?,
+        latency_avg_ms: r.get(8)?,
+        latency_p95_ms: r.get(9)?,
+        drop_rate_avg: r.get(10)?,
+        downlink_avg_bps: r.get(11)?,
+        power_avg_w: r.get(12)?,
+        power_max_w: r.get(13)?,
+        fraction_obstructed: r.get(14)?,
+    })
+}
+
+const HOUR_COLUMNS: &str = "date_key, hour, location, weekday, start_ms, end_ms, minutes, samples, \
+     latency_avg_ms, latency_p95_ms, drop_rate_avg, downlink_avg_bps, power_avg_w, power_max_w, \
+     fraction_obstructed";
+
+/// Rebuilds the hourly rows of every local hour that contains a touched minute, from the
+/// minute table (DST-safe: buckets come from `chrono::Local`, not fixed offsets).
+fn recompute_hours(conn: &Connection, touched: &BTreeSet<i64>) -> Result<(), rusqlite::Error> {
+    use chrono::Datelike;
+    let (Some(&lo), Some(&hi)) = (touched.first(), touched.last()) else {
+        return Ok(());
+    };
+    let tz = chrono::Local;
+    let bucket = |ms: i64| {
+        let d = crate::usage::local_date(ms, &tz);
+        (
+            crate::usage::date_key(d),
+            crate::usage::local_hour(ms, &tz),
+            d.weekday().num_days_from_monday() as u8,
+        )
+    };
+    let touched_buckets: BTreeSet<(i64, u8)> = touched
+        .iter()
+        .map(|m| {
+            let (d, h, _) = bucket(*m);
+            (d, h)
+        })
+        .collect();
+    // ±3 h covers every minute of a touched local hour (including the repeated DST hour).
+    let mut stmt = conn.prepare_cached(
+        "SELECT minute_ms, samples, latency_avg_ms, latency_p95_ms, drop_rate_avg,
+                downlink_avg_bps, power_avg_w, power_max_w, location, fraction_obstructed
+         FROM minutes WHERE minute_ms >= ?1 AND minute_ms <= ?2",
+    )?;
+    let rows = stmt
+        .query_map([lo - 3 * 3_600_000, hi + 3 * 3_600_000], |r| {
+            let minute_ms: i64 = r.get(0)?;
+            let samples: u32 = r.get(1)?;
+            Ok((
+                minute_ms,
+                HourRow {
+                    start_ms: minute_ms,
+                    end_ms: minute_ms + MINUTE_MS,
+                    minutes: 1,
+                    samples,
+                    latency_avg_ms: r.get(2)?,
+                    latency_p95_ms: r.get(3)?,
+                    drop_rate_avg: r.get(4)?,
+                    downlink_avg_bps: r.get(5)?,
+                    power_avg_w: r.get(6)?,
+                    power_max_w: r.get(7)?,
+                    location: r.get(8)?,
+                    fraction_obstructed: r.get(9)?,
+                    ..Default::default()
+                },
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut groups: std::collections::BTreeMap<(i64, u8, String), Vec<HourRow>> =
+        Default::default();
+    for (ms, mut row) in rows {
+        let (d, h, wd) = bucket(ms);
+        if !touched_buckets.contains(&(d, h)) {
+            continue;
+        }
+        row.date_key = d;
+        row.hour = h;
+        row.weekday = wd;
+        groups
+            .entry((d, h, row.location.clone()))
+            .or_default()
+            .push(row);
+    }
+    for (d, h) in &touched_buckets {
+        conn.execute(
+            "DELETE FROM hourly WHERE date_key = ?1 AND hour = ?2",
+            params![d, h],
+        )?;
+    }
+    for rows in groups.values() {
+        if let Some(merged) = merge_hour_rows(rows) {
+            upsert_hour(conn, &merged)?;
+        }
+    }
+    Ok(())
+}
+
 fn load_samples(conn: &Connection, from_s: i64, to_s: i64) -> Result<Vec<Sample>, rusqlite::Error> {
     let mut stmt = conn.prepare_cached(
         "SELECT ts_s, latency_ms, drop_rate, downlink_bps, uplink_bps, power_w
@@ -840,13 +1211,18 @@ fn load_samples(conn: &Connection, from_s: i64, to_s: i64) -> Result<Vec<Sample>
     rows.collect()
 }
 
-fn upsert_minutes(conn: &Connection, points: &[HistoryPoint]) -> Result<(), rusqlite::Error> {
+fn upsert_minutes(
+    conn: &Connection,
+    points: &[HistoryPoint],
+    location: &str,
+    obstruction: Option<f64>,
+) -> Result<(), rusqlite::Error> {
     let mut stmt = conn.prepare_cached(
         "INSERT OR REPLACE INTO minutes
          (minute_ms, samples, latency_avg_ms, latency_p95_ms, latency_max_ms, drop_rate_avg,
           downlink_avg_bps, downlink_max_bps, uplink_avg_bps, uplink_max_bps,
-          power_avg_w, power_max_w)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+          power_avg_w, power_max_w, location, fraction_obstructed)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
     )?;
     for p in points {
         stmt.execute(params![
@@ -861,7 +1237,9 @@ fn upsert_minutes(conn: &Connection, points: &[HistoryPoint]) -> Result<(), rusq
             p.uplink_avg_bps,
             p.uplink_max_bps,
             p.power_avg_w,
-            p.power_max_w
+            p.power_max_w,
+            location,
+            obstruction
         ])?;
     }
     Ok(())
@@ -882,7 +1260,11 @@ pub fn merge_outage_cause(existing: &str, incoming: &str, incoming_has_severity:
     }
 }
 
-fn upsert_events(conn: &Connection, events: &[(DishEvent, bool)]) -> Result<(), rusqlite::Error> {
+fn upsert_events(
+    conn: &Connection,
+    events: &[(DishEvent, bool)],
+    location: &str,
+) -> Result<(), rusqlite::Error> {
     let mut find = conn.prepare_cached(
         "SELECT rowid, cause, duration_ms, severity FROM events
          WHERE is_outage = 1 AND start_ms BETWEEN ?1 - ?2 AND ?1 + ?2
@@ -892,19 +1274,25 @@ fn upsert_events(conn: &Connection, events: &[(DishEvent, bool)]) -> Result<(), 
         "UPDATE events SET cause = ?2, duration_ms = ?3, severity = ?4 WHERE rowid = ?1",
     )?;
     let mut insert_outage = conn.prepare_cached(
-        "INSERT OR IGNORE INTO events (start_ms, cause, duration_ms, severity, is_outage)
-         VALUES (?1, ?2, ?3, ?4, 1)",
+        "INSERT OR IGNORE INTO events (start_ms, cause, duration_ms, severity, is_outage, location)
+         VALUES (?1, ?2, ?3, ?4, 1, ?5)",
     )?;
     let mut other = conn.prepare_cached(
-        "INSERT INTO events (start_ms, cause, duration_ms, severity, is_outage)
-         VALUES (?1, ?2, ?3, ?4, 0)
+        "INSERT INTO events (start_ms, cause, duration_ms, severity, is_outage, location)
+         VALUES (?1, ?2, ?3, ?4, 0, ?5)
          ON CONFLICT (start_ms, cause) WHERE is_outage = 0 DO UPDATE SET
             duration_ms = MAX(events.duration_ms, excluded.duration_ms),
             severity = COALESCE(excluded.severity, events.severity)",
     )?;
     for (e, is_outage) in events {
         if !*is_outage {
-            other.execute(params![e.start_ms, e.cause, e.duration_ms, e.severity])?;
+            other.execute(params![
+                e.start_ms,
+                e.cause,
+                e.duration_ms,
+                e.severity,
+                location
+            ])?;
             continue;
         }
         let existing = find
@@ -928,7 +1316,13 @@ fn upsert_events(conn: &Connection, events: &[(DishEvent, bool)]) -> Result<(), 
                 ])?;
             }
             None => {
-                insert_outage.execute(params![e.start_ms, e.cause, e.duration_ms, e.severity])?;
+                insert_outage.execute(params![
+                    e.start_ms,
+                    e.cause,
+                    e.duration_ms,
+                    e.severity,
+                    location
+                ])?;
             }
         }
     }
@@ -1013,13 +1407,17 @@ fn prune(conn: &Connection, now_ms: i64) -> Result<(), rusqlite::Error> {
     )?;
     conn.execute(
         "DELETE FROM events WHERE start_ms + duration_ms < ?1",
-        [now_ms - MINUTE_RETENTION_MS],
+        [now_ms - DAILY_RETENTION_MS],
     )?;
     conn.execute(
         "DELETE FROM daily WHERE day_ms < ?1",
         [now_ms - DAILY_RETENTION_MS],
     )?;
     let oldest = crate::usage::local_date(now_ms - DAILY_RETENTION_MS - DAY_MS, &chrono::Local);
+    conn.execute(
+        "DELETE FROM hourly WHERE date_key < ?1",
+        [crate::usage::date_key(oldest)],
+    )?;
     conn.execute(
         "DELETE FROM usage_local_day WHERE date_key < ?1",
         [crate::usage::date_key(oldest)],
@@ -1220,6 +1618,57 @@ mod tests {
             .map(|u| u.download_bytes)
             .sum();
         assert_eq!(total, 900.0 * 1000.0);
+    }
+
+    #[test]
+    fn locations_are_tagged_aggregated_and_renamed() {
+        let mut db = Db::open_in_memory().unwrap();
+        let t0: i64 = 1_800_000_000;
+        db.set_context(Some("Roof"), Some(0.01));
+        let mut h = history(120, 900, |_| 30.0);
+        h.outages = vec![DishEvent {
+            start_ms: (t0 - 50) * 1000,
+            duration_ms: 4_000,
+            cause: "NO_PINGS".into(),
+            severity: None,
+        }];
+        db.ingest_history(&h, t0 * 1000).unwrap();
+        db.set_context(Some("Balcony"), Some(0.05));
+        db.ingest_history(&history(180, 900, |_| 50.0), (t0 + 60) * 1000)
+            .unwrap();
+
+        let stats = db.location_stats().unwrap();
+        let names: Vec<&str> = stats.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["Balcony", "Roof"]);
+        let roof = &stats[1];
+        // Location is per minute: the minute shared by both ingests belongs to the later tag.
+        assert_eq!(roof.covered_s, 119.0);
+        assert_eq!(roof.outage_count, 1);
+        assert_eq!(roof.outage_s, 4.0);
+        assert_eq!(roof.latency_avg_ms, Some(30.0));
+        assert_eq!(roof.fraction_obstructed_avg, Some(0.01));
+        assert_eq!(roof.outages_per_hour, None, "less than an hour of data");
+        assert_eq!(stats[0].covered_s, 61.0);
+        assert!((stats[0].fraction_obstructed_avg.unwrap() - 0.05).abs() < 1e-12);
+        // Hourly rows exist and add up.
+        let hours = db.hourly_since(0).unwrap();
+        assert_eq!(hours.iter().map(|r| r.samples).sum::<u32>(), 180);
+
+        // Rename merges into an existing tag.
+        db.rename_location("Balcony", "Roof").unwrap();
+        let stats = db.location_stats().unwrap();
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].covered_s, 180.0);
+        assert!(
+            (stats[0].latency_avg_ms.unwrap() - (120.0 * 30.0 + 60.0 * 50.0) / 180.0).abs() < 1e-9
+        );
+        // Delete = untag (data kept).
+        db.rename_location("Roof", "").unwrap();
+        let stats = db.location_stats().unwrap();
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].name, "");
+        assert_eq!(stats[0].covered_s, 180.0);
+        assert_eq!(stats[0].outage_count, 1);
     }
 
     #[test]

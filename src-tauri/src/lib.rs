@@ -6,9 +6,12 @@ pub mod commands;
 pub mod dish;
 pub mod error;
 pub mod export;
+pub mod i18n;
+pub mod insights;
 pub mod keyring_store;
 pub mod models;
 pub mod notify;
+pub mod readiness;
 pub mod rules;
 pub mod service;
 pub mod settings;
@@ -58,6 +61,13 @@ pub fn run() {
             keyring_store::init_file_fallback(&data_dir);
             let state = Arc::new(AppState::new(&data_dir)?);
             app.manage(state.clone());
+            // Resolve the UI language before the tray menu is built.
+            if let Ok(settings) = state.settings.try_read() {
+                i18n::set_current(i18n::resolve(
+                    settings.language,
+                    i18n::os_locale().as_deref(),
+                ));
+            }
             // Launch at login: the setting is the source of truth; sync the OS state.
             let login_item: Arc<dyn autostart::LoginItem> =
                 Arc::new(autostart::TauriLoginItem(app.handle().clone()));
@@ -117,6 +127,11 @@ pub fn run() {
             commands::analyze_network_with_ai,
             commands::get_last_ai_report,
             commands::set_alignment_mode,
+            commands::get_location_stats,
+            commands::rename_location,
+            commands::delete_location,
+            commands::get_time_of_day_stats,
+            commands::get_energy,
             commands::check_for_update,
             commands::install_update,
             commands::open_releases_page,

@@ -21,6 +21,8 @@ pub trait EventSink: Send + Sync {
     fn capabilities(&self, caps: &DishCapabilities);
     /// Shows a desktop notification (already filtered by the engine).
     fn notify(&self, _n: &crate::notify::Notification) {}
+    /// The UI language changed (tray menu texts are rebuilt).
+    fn language_changed(&self) {}
     /// `alignment-mode` event.
     fn alignment_mode(&self, _e: &crate::models::AlignmentModeEvent) {}
 }
@@ -266,8 +268,18 @@ impl AppState {
         }
         let mut guard = self.settings.write().await;
         let reconnect = settings::needs_reconnect(&guard, &new);
+        let language_changed = guard.language != new.language;
         *guard = new.clone();
         drop(guard);
+        if language_changed {
+            crate::i18n::set_current(crate::i18n::resolve(
+                new.language,
+                crate::i18n::os_locale().as_deref(),
+            ));
+            if let Some(sink) = self.sink.read().await.as_ref() {
+                sink.language_changed();
+            }
+        }
         if reconnect {
             tracing::info!("settings changed, reconnecting");
             self.reconnect.notify_one();

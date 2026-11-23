@@ -10,7 +10,7 @@ use crate::capabilities::{self, CapabilityInputs, Probe};
 use crate::dish::grpc::{DEFAULT_TIMEOUT, GrpcClient};
 use crate::dish::mock::MockClient;
 use crate::dish::{RouterClient, StarlinkClient};
-use crate::models::{ConnectionState, ConnectionStatus, MockMode, Settings};
+use crate::models::{ConnectionState, ConnectionStatus, DishEvent, MockMode, Settings};
 use crate::notify::{Notification, Observation};
 use crate::state::{AppState, EventSink, lock_db};
 use crate::storage::{BootInfo, aggregate_minutes};
@@ -121,10 +121,19 @@ async fn prepare_mock_db(state: &Arc<AppState>, mock: Arc<MockClient>) {
         *current = Some(profile);
     }
     let db = state.mock_db.clone();
+    // Recent mock history is tagged with the active location (or "Roof" for the demo).
+    let location = state
+        .settings
+        .read()
+        .await
+        .active_location
+        .clone()
+        .unwrap_or_else(|| "Roof".to_string());
     let res = tokio::task::spawn_blocking(move || {
         let fresh = crate::storage::Db::open_in_memory()?;
         let mut guard = lock_db(&db);
         *guard = fresh;
+        guard.set_context(Some(&location), None);
         let (samples, outages) = mock.backfill(MOCK_BACKFILL_HOURS);
         let points = aggregate_minutes(&samples);
         guard.insert_backfill(&points, &outages, now_ms())?;
@@ -134,7 +143,19 @@ async fn prepare_mock_db(state: &Arc<AppState>, mock: Arc<MockClient>) {
         guard.insert_daily_if_missing(&daily)?;
         let usage: std::collections::BTreeMap<i64, (f64, f64)> =
             usage.into_iter().map(|(d, a, b)| (d, (a, b))).collect();
-        guard.add_usage(&usage)
+        guard.add_usage(&usage)?;
+        // 30 days of hourly data (time of day, locations, energy) with tagged outages.
+        let (hours, outages) = mock.hourly_backfill(30, 2);
+        guard.insert_hourly_if_missing(&hours)?;
+        for loc in ["Balcony", "Roof"] {
+            let evs: Vec<DishEvent> = outages
+                .iter()
+                .filter(|(_, l)| *l == loc)
+                .map(|(e, _)| e.clone())
+                .collect();
+            guard.insert_outages_at(&evs, loc)?;
+        }
+        Ok::<(), rusqlite::Error>(())
     })
     .await;
     match res {
@@ -147,10 +168,16 @@ async fn prepare_mock_db(state: &Arc<AppState>, mock: Arc<MockClient>) {
 /// Fetches `get_history` and stores it. Returns whether power telemetry is present.
 pub async fn ingest_history(state: &AppState, client: &Arc<dyn StarlinkClient>) -> Option<bool> {
     // Boot markers let storage detect reboots the `current` counter alone would miss.
-    let boot = client.get_status().await.ok().map(|s| BootInfo {
+    let status = client.get_status().await.ok();
+    let boot = status.as_ref().map(|s| BootInfo {
         uptime_s: s.snapshot.uptime_s,
         bootcount: s.bootcount,
     });
+    // New rows are tagged with the active location and the current obstruction.
+    let location = state.settings.read().await.active_location.clone();
+    let obstruction = status
+        .as_ref()
+        .and_then(|s| s.snapshot.obstruction.fraction_obstructed);
     let history = match client.get_history().await {
         Ok(h) => h,
         Err(e) => {
@@ -162,7 +189,9 @@ pub async fn ingest_history(state: &AppState, client: &Arc<dyn StarlinkClient>) 
     *state.power_cache.write().await = Some((history.latest_power(), now_ms()));
     let db = state.db_for(client.is_mock());
     let res = tokio::task::spawn_blocking(move || {
-        lock_db(&db).ingest_history_with_boot(&history, now_ms(), boot)
+        let mut db = lock_db(&db);
+        db.set_context(location.as_deref(), obstruction);
+        db.ingest_history_with_boot(&history, now_ms(), boot)
     })
     .await;
     match res {
@@ -511,6 +540,7 @@ async fn live_poll(
     let mut last_throttle_minute = i64::MIN;
     let mut last_alignment_event = now_ms();
     let mut first = true;
+    let mut window = crate::readiness::LiveWindow::default();
     loop {
         // Alignment mode switches to 1 s polling; a mode change wakes the wait at once.
         let aligning = crate::alignment::tick(&state, &mut last_alignment_event).await;
@@ -527,6 +557,21 @@ async fn live_poll(
                 failures = 0;
                 let mut snap = st.snapshot;
                 snap.power_w = cached_power(&state).await;
+                window.push(
+                    snap.timestamp_ms,
+                    snap.pop_ping_latency_ms,
+                    snap.pop_ping_drop_rate,
+                );
+                snap.jitter_ms = window.jitter_ms().map(|j| (j * 10.0).round() / 10.0);
+                let in_outage = snap.pop_ping_latency_ms.is_none()
+                    && snap.pop_ping_drop_rate.unwrap_or(0.0) >= 1.0;
+                snap.readiness = crate::readiness::readiness(
+                    window.latency_avg_ms(),
+                    snap.jitter_ms,
+                    window.drop_avg(),
+                    snap.obstruction.currently_obstructed.unwrap_or(false),
+                    in_outage,
+                );
                 *state.snapshot.write().await = Some(snap.clone());
                 sink.telemetry(&snap);
                 // Notifications describe the real dish only; mock data never feeds the engine.
@@ -902,6 +947,75 @@ mod tests {
         let events = rec.align.lock().unwrap().clone();
         assert!(events.first().unwrap().enabled);
         assert!(!events.last().unwrap().enabled);
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn mock_phase6_history() {
+        let (state, rec, task) = start_mock(MockProfile::Mini, 5).await;
+        // Readiness needs ≥ 10 live samples; jitter is None at first.
+        assert!(rec.telemetry.lock().unwrap()[0].jitter_ms.is_none());
+
+        let locs = crate::commands::location_stats(&state).await.unwrap();
+        let names: Vec<&str> = locs.iter().map(|l| l.name.as_str()).collect();
+        assert!(
+            names.contains(&"Balcony") && names.contains(&"Roof"),
+            "{names:?}"
+        );
+        let balcony = locs.iter().find(|l| l.name == "Balcony").unwrap();
+        let roof = locs.iter().find(|l| l.name == "Roof").unwrap();
+        assert!(balcony.fraction_obstructed_avg > roof.fraction_obstructed_avg);
+        assert!(balcony.drop_rate_avg > roof.drop_rate_avg);
+        assert!(roof.covered_s > 0.0 && balcony.outages_per_hour.is_some());
+
+        let tod = crate::commands::time_of_day_stats(&state, 30)
+            .await
+            .unwrap();
+        assert!(!tod.cells.is_empty() && tod.cells.len() <= 168);
+        let avg_at = |h: u8| {
+            let v: Vec<f64> = tod
+                .cells
+                .iter()
+                .filter(|c| c.hour == h)
+                .filter_map(|c| c.latency_avg_ms)
+                .collect();
+            v.iter().sum::<f64>() / v.len() as f64
+        };
+        assert!(avg_at(21) > avg_at(10), "evening congestion");
+        assert!(crate::commands::time_of_day_stats(&state, 6).await.is_err());
+
+        let energy = crate::commands::energy(&state, 30).await.unwrap();
+        assert_eq!(energy.len(), 30);
+        assert!(energy.windows(2).all(|w| w[0].day_ms < w[1].day_ms));
+        let older = &energy[10];
+        assert!(older.wh > 100.0 && older.peak_w.unwrap() > older.avg_w.unwrap());
+        assert!(crate::commands::energy(&state, 0).await.is_err());
+
+        // Renaming the active location keeps the setting in sync.
+        let s = state.settings.read().await.clone();
+        state
+            .update_settings(Settings {
+                active_location: Some("Roof".into()),
+                ..s
+            })
+            .await
+            .unwrap();
+        crate::commands::rename_location_impl(&state, "Roof", "Garden")
+            .await
+            .unwrap();
+        assert_eq!(
+            state.settings.read().await.active_location.as_deref(),
+            Some("Garden")
+        );
+        crate::commands::delete_location_impl(&state, "Garden")
+            .await
+            .unwrap();
+        assert_eq!(state.settings.read().await.active_location, None);
+        assert!(
+            crate::commands::rename_location_impl(&state, "x", " ")
+                .await
+                .is_err()
+        );
         task.abort();
     }
 }

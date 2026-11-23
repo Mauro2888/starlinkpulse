@@ -130,11 +130,46 @@ impl AppError {
     }
 }
 
+impl AppError {
+    /// Message shown to the user in `lang`. Known fixed messages are translated; dynamic
+    /// ones (server texts, validation details) stay as they are.
+    pub fn localized_message(&self, lang: crate::i18n::Lang) -> String {
+        use crate::i18n::{ErrorTexts, Lang};
+        if lang == Lang::En {
+            return self.to_string();
+        }
+        let t = ErrorTexts::get(lang);
+        let en = &ErrorTexts::EN;
+        match self {
+            AppError::ReadOnly => t.read_only.into(),
+            AppError::WriteDenied => t.write_denied.into(),
+            AppError::InsufficientData => t.insufficient_data.into(),
+            AppError::NoApiKey => t.no_api_key.into(),
+            AppError::AiRefused => t.ai_refused.into(),
+            AppError::InvalidInput(m) | AppError::Unsupported(m) => {
+                let pairs = [
+                    (en.ai_off, t.ai_off),
+                    (en.alignment_manual_only, t.alignment_manual_only),
+                ];
+                pairs
+                    .iter()
+                    .find(|(e, _)| m == e)
+                    .map(|(_, l)| l.to_string())
+                    .unwrap_or_else(|| self.to_string())
+            }
+            AppError::Client(ClientError::Unreachable(m)) if m == "not connected" => {
+                t.not_connected.into()
+            }
+            _ => self.to_string(),
+        }
+    }
+}
+
 impl From<AppError> for CommandError {
     fn from(err: AppError) -> Self {
         CommandError {
             kind: err.kind().to_string(),
-            message: err.to_string(),
+            message: err.localized_message(crate::i18n::current()),
         }
     }
 }
@@ -164,6 +199,37 @@ mod tests {
         assert!(c.message.contains("Starlink app"));
         let e: ClientError = tonic::Status::deadline_exceeded("x").into();
         assert_eq!(e, ClientError::Timeout);
+    }
+
+    #[test]
+    fn italian_error_messages() {
+        use crate::i18n::Lang;
+        assert_eq!(
+            AppError::ReadOnly.localized_message(Lang::It),
+            "La modalità sola lettura è attiva; disattivala nelle Impostazioni per inviare comandi alla parabola."
+        );
+        assert!(
+            AppError::InsufficientData
+                .localized_message(Lang::It)
+                .starts_with("Storico ancora insufficiente")
+        );
+        assert_eq!(
+            AppError::InvalidInput("AI explanations are turned off".into())
+                .localized_message(Lang::It),
+            "Le spiegazioni AI sono disattivate"
+        );
+        assert_eq!(
+            AppError::Client(ClientError::Unreachable("not connected".into()))
+                .localized_message(Lang::It),
+            "Non connesso alla parabola."
+        );
+        // Dynamic messages are kept; English is unchanged.
+        let dynamic = AppError::InvalidInput("days must be between 7 and 90".into());
+        assert_eq!(dynamic.localized_message(Lang::It), dynamic.to_string());
+        assert_eq!(
+            AppError::ReadOnly.localized_message(Lang::En),
+            AppError::ReadOnly.to_string()
+        );
     }
 
     #[test]

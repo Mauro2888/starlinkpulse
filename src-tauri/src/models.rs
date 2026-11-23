@@ -106,6 +106,99 @@ pub struct TelemetrySnapshot {
     /// Names of active alerts (e.g. "thermalThrottle"); empty when none.
     pub alerts: Vec<String>,
     pub is_heating: Option<bool>,
+    /// Mean |Δ latency| over the live samples of the last ~2 min (≥ 10 samples).
+    pub jitter_ms: Option<f64>,
+    /// Suitability per use, computed from latency, jitter, drop rate and obstruction.
+    pub readiness: Option<Readiness>,
+}
+
+/// UI / notifications / rule texts language.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AppLanguage {
+    /// Follow the operating system.
+    #[default]
+    System,
+    En,
+    It,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadinessLevel {
+    Good,
+    Fair,
+    Poor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Readiness {
+    pub video_call: ReadinessLevel,
+    pub gaming: ReadinessLevel,
+    pub streaming: ReadinessLevel,
+}
+
+/// Optional battery for off-grid runtime estimates (computed in the UI).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatteryConfig {
+    pub capacity_ah: f64,
+    pub voltage: f64,
+    /// Usable fraction 0.1–1 (e.g. 0.8 for LiFePO4 at 80 % DoD).
+    pub usable_fraction: f64,
+}
+
+/// Statistics for one location tag ("" = untagged).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LocationStats {
+    pub name: String,
+    pub first_seen_ms: i64,
+    pub last_seen_ms: i64,
+    pub covered_s: f64,
+    pub outage_count: u32,
+    pub outage_s: f64,
+    pub outages_per_hour: Option<f64>,
+    pub fraction_obstructed_avg: Option<f64>,
+    pub latency_avg_ms: Option<f64>,
+    pub latency_p95_ms: Option<f64>,
+    pub drop_rate_avg: Option<f64>,
+    pub downlink_avg_bps: Option<f64>,
+}
+
+/// One weekday × hour cell (local time).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HourCell {
+    /// 0 = Monday … 6 = Sunday (local time).
+    pub weekday: u8,
+    /// 0–23 local time.
+    pub hour: u8,
+    pub minutes: u32,
+    pub latency_avg_ms: Option<f64>,
+    pub latency_p95_ms: Option<f64>,
+    pub drop_rate_avg: Option<f64>,
+    pub downlink_avg_bps: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TimeOfDayStats {
+    pub days: u32,
+    pub cells: Vec<HourCell>,
+}
+
+/// Energy for one local day.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyEnergy {
+    /// Local midnight, Unix ms.
+    pub day_ms: i64,
+    pub wh: f64,
+    pub avg_w: Option<f64>,
+    pub peak_w: Option<f64>,
+    pub covered_s: f64,
 }
 
 /// One per-minute aggregate derived from `get_history` and stored in SQLite.
@@ -247,6 +340,12 @@ pub struct Settings {
     pub close_to_tray: bool,
     /// Start StarlinkPulse at login (OS login item). Default off.
     pub launch_at_login: bool,
+    /// UI + notifications + rule texts language. "system" follows the OS.
+    pub language: AppLanguage,
+    /// Tag applied to new history (e.g. "Roof"); `None` = untagged.
+    pub active_location: Option<String>,
+    /// Optional battery for off-grid runtime estimates; `None` = not configured.
+    pub battery: Option<BatteryConfig>,
     pub notifications: NotificationSettings,
     /// Monthly data cap in GB for usage alerts; `None` = no cap.
     pub data_cap_gb: Option<f64>,
@@ -350,6 +449,9 @@ impl Default for Settings {
             claude_model: "claude-opus-5-5".into(),
             close_to_tray: !cfg!(target_os = "linux"),
             launch_at_login: false,
+            language: AppLanguage::System,
+            active_location: None,
+            battery: None,
             notifications: NotificationSettings::default(),
             data_cap_gb: None,
             billing_cycle_day: 1,
