@@ -11,7 +11,7 @@ use crate::keyring_store;
 use crate::models::{
     AiReport, CommandError, ConnectionStatus, DailyUsage, DataUsage, DiagnosticSummary,
     DishCapabilities, DishEvent, HistoryPoint, ObstructionMap, Settings, SnowMeltMode,
-    TelemetrySnapshot, UptimeStats,
+    TelemetrySnapshot, UptimeStats, WeatherPlace, WeatherSeries,
 };
 use crate::state::{AppState, lock_db};
 use crate::storage::MAX_RANGE_MINUTES;
@@ -274,6 +274,22 @@ pub async fn run_diagnostics(state: State<'_, Arc<AppState>>) -> CmdResult<AiRep
 #[tauri::command]
 pub async fn list_local_models(state: State<'_, Arc<AppState>>) -> CmdResult<Vec<String>> {
     Ok(crate::ai::list_local_models(&state).await?)
+}
+
+/// Geocoding search for the weather place picker.
+#[tauri::command]
+pub async fn search_weather_locations(query: String) -> CmdResult<Vec<WeatherPlace>> {
+    Ok(crate::weather::search(&query, crate::i18n::current()).await?)
+}
+
+/// Hourly weather for the last `range_minutes` at the configured place.
+#[tauri::command]
+pub async fn get_weather(
+    state: State<'_, Arc<AppState>>,
+    range_minutes: u32,
+) -> CmdResult<WeatherSeries> {
+    let loc = state.settings.read().await.weather_location.clone();
+    Ok(crate::weather::get(loc, range_minutes).await?)
 }
 
 /// Last report of the built-in rule engine (`run_diagnostics`) for the active data source.

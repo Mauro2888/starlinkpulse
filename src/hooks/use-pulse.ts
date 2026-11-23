@@ -8,6 +8,7 @@ import type {
   DishEvent,
   HistoryPoint,
   LocationStats,
+  WeatherSeries,
   ObstructionMap,
   TimeOfDayStats,
   UptimeStats,
@@ -140,6 +141,14 @@ export function useLocationStats(): AsyncResource<LocationStats[]> {
     version,
     300_000,
   );
+}
+
+/** Hourly weather for the range; `available: false` when no place is set. Refetches when the place changes. */
+export function useWeather(rangeMinutes: number): AsyncResource<WeatherSeries> {
+  const [source, version] = useSourceKey();
+  const { settings } = usePulse();
+  const place = settings?.weatherLocation ? `${settings.weatherLocation.latitude},${settings.weatherLocation.longitude}` : "off";
+  return useAsyncResource(() => api.getWeather(rangeMinutes), `w${rangeMinutes}|${source}|${place}`, version, 1_800_000);
 }
 
 /** Weekday × hour aggregates for the last `days` (7–90). */

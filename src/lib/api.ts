@@ -20,6 +20,8 @@ import type {
   TimeOfDayStats,
   UpdateInfo,
   UptimeStats,
+  WeatherPlace,
+  WeatherSeries,
   WifiDevices,
 } from "@/types/models";
 import { normalizeError } from "@/lib/errors";
@@ -48,6 +50,8 @@ export interface CommandMap {
   check_for_update: { args: void; result: UpdateInfo };
   install_update: { args: void; result: null };
   open_releases_page: { args: void; result: null };
+  search_weather_locations: { args: { query: string }; result: WeatherPlace[] };
+  get_weather: { args: { rangeMinutes: number }; result: WeatherSeries };
   get_location_stats: { args: void; result: LocationStats[] };
   rename_location: { args: { from: string; to: string }; result: null };
   delete_location: { args: { name: string }; result: null };
@@ -163,6 +167,8 @@ export const api = {
   installUpdate: () => call("install_update").then(() => undefined),
   /** Opens the build's fixed GitHub Releases URL in the system browser. */
   openReleasesPage: () => call("open_releases_page").then(() => undefined),
+  searchWeatherLocations: (query: string) => call("search_weather_locations", { query }),
+  getWeather: (rangeMinutes: number) => call("get_weather", { rangeMinutes }),
   getLocationStats: () => call("get_location_stats"),
   renameLocation: (from: string, to: string) => call("rename_location", { from, to }).then(() => undefined),
   deleteLocation: (name: string) => call("delete_location", { name }).then(() => undefined),

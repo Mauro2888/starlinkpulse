@@ -153,6 +153,8 @@ export interface Settings {
   activeLocation: string | null;
   /** Optional battery for off-grid runtime estimates; null = not configured. */
   battery: BatteryConfig | null;
+  /** Optional place for weather correlation (opt-in); null = off. */
+  weatherLocation: WeatherLocation | null;
   notifications: NotificationSettings;
   /** Monthly data cap in GB for usage alerts; null = none. */
   dataCapGb: number | null;
@@ -388,4 +390,34 @@ export interface DailyEnergy {
   avgW: number | null;
   peakW: number | null;
   coveredS: number;
+}
+
+// ---- Weather correlation (opt-in) ----
+
+export interface WeatherLocation {
+  name: string;
+  latitude: number;
+  longitude: number;
+}
+
+export interface WeatherPlace {
+  name: string;
+  admin1: string | null;
+  country: string | null;
+  latitude: number;
+  longitude: number;
+}
+
+export interface WeatherPoint {
+  hourMs: number;
+  precipitationMm: number | null;
+  snowfallCm: number | null;
+  cloudCoverPct: number | null;
+  windKmh: number | null;
+}
+
+export interface WeatherSeries {
+  available: boolean;
+  locationName: string | null;
+  points: WeatherPoint[];
 }

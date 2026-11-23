@@ -1,7 +1,7 @@
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { tk } from "@/i18n/keys";
-import { BellRing, Loader2, RefreshCw, TriangleAlert } from "lucide-react";
+import { BellRing, CloudRain, Loader2, RefreshCw, Search, TriangleAlert, X } from "lucide-react";
 import type {
   AiProvider,
   AppLanguage,
@@ -11,6 +11,8 @@ import type {
   MockProfile,
   NotificationSettings,
   Settings,
+  WeatherLocation,
+  WeatherPlace,
 } from "@/types/models";
 import { resolveLanguage } from "@/i18n";
 import { batteryWh } from "@/lib/energy";
@@ -296,6 +298,11 @@ export function SettingsForm({ settings, onSave, readOnlySwitchId = "read-only-s
         </fieldset>
 
         <AiFields draft={draft} saved={settings} errors={errors} set={set} />
+
+        <WeatherFields
+          value={draft.weatherLocation}
+          onChange={(w) => set("weatherLocation", w)}
+        />
 
         <BatteryFields
           value={draft.battery}
@@ -955,6 +962,104 @@ function BatteryFields({
               })}
           </p>
         </>
+      )}
+    </fieldset>
+  );
+}
+
+/** Opt-in weather place. Only the typed query and the rounded coordinates leave the device. */
+function WeatherFields({ value, onChange }: { value: WeatherLocation | null; onChange: (v: WeatherLocation | null) => void }) {
+  const { t } = useTranslation();
+  const [query, setQuery] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [places, setPlaces] = useState<WeatherPlace[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const search = async () => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setError(t("Type at least 2 characters."));
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      setPlaces(await api.searchWeatherLocations(q));
+    } catch (e) {
+      setPlaces(null);
+      setError(normalizeError(e).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pick = (p: WeatherPlace) => {
+    const label = [p.name, p.admin1, p.country].filter(Boolean).join(", ").slice(0, 100);
+    onChange({ name: label, latitude: p.latitude, longitude: p.longitude });
+    setPlaces(null);
+    setQuery("");
+  };
+
+  return (
+    <fieldset className="flex flex-col gap-3 border-t border-border pt-4">
+      <legend className="eyebrow mb-2">{t("Weather")}</legend>
+      <p className="text-xs text-muted-foreground">
+        {t("Optional. Shows rain and snow next to outages. The place name you type and its coordinates, rounded to about 1 km, are sent to Open-Meteo. Your dish location is never used.")}
+      </p>
+      {value ? (
+        <div className="flex items-center justify-between gap-2 rounded-lg bg-card px-3 py-2 ring-1 ring-border">
+          <span className="flex min-w-0 items-center gap-2 text-sm">
+            <CloudRain className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="truncate">{value.name}</span>
+          </span>
+          <Button type="button" variant="ghost" size="sm" onClick={() => onChange(null)}>
+            <X aria-hidden /> {t("Remove")}
+          </Button>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">{t("No place set. Weather is off.")}</p>
+      )}
+      <div className="flex gap-2">
+        <Input
+          aria-label={t("Search for a place")}
+          placeholder={t("City or town")}
+          value={query}
+          maxLength={100}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void search();
+            }
+          }}
+        />
+        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void search()}>
+          {busy ? <Loader2 className="animate-spin" aria-hidden /> : <Search aria-hidden />} {t("Search")}
+        </Button>
+      </div>
+      {error && (
+        <p role="alert" className="text-xs text-critical">
+          {error}
+        </p>
+      )}
+      {places && places.length === 0 && <p className="text-xs text-muted-foreground">{t("No places found.")}</p>}
+      {places && places.length > 0 && (
+        <ul className="flex flex-col divide-y divide-border rounded-lg ring-1 ring-border" aria-label={t("Search results")}>
+          {places.map((p) => (
+            <li key={`${p.latitude},${p.longitude}`}>
+              <button
+                type="button"
+                onClick={() => pick(p)}
+                className="w-full px-3 py-1.5 text-left text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {p.name}
+                <span className="text-xs text-muted-foreground">
+                  {[p.admin1, p.country].filter(Boolean).length > 0 && `  ${[p.admin1, p.country].filter(Boolean).join(", ")}`}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
     </fieldset>
   );

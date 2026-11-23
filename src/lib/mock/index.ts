@@ -57,6 +57,7 @@ export const DEFAULT_SETTINGS: Settings = {
   language: "system",
   activeLocation: null,
   battery: null,
+  weatherLocation: null,
 };
 
 function fail(kind: CommandError["kind"], message: string): never {
@@ -215,6 +216,33 @@ export class MockBackend implements Backend {
         await new Promise((r) => setTimeout(r, 2_000));
         this.updateInstalled = true;
         return null;
+      case "search_weather_locations": {
+        const q = String(args.query ?? "").trim();
+        if (q.length < 2 || q.length > 100) fail("invalid_input", "Enter 2–100 characters.");
+        return [
+          { name: q, admin1: "Lombardy", country: "Italy", latitude: 45.46, longitude: 9.19 },
+          { name: q, admin1: "Texas", country: "United States", latitude: 30.27, longitude: -97.74 },
+        ];
+      }
+      case "get_weather": {
+        const loc = this.settings.weatherLocation;
+        if (!loc) return { available: false, locationName: null, points: [] };
+        const range = Number(args.rangeMinutes);
+        const end = Math.floor(Date.now() / 3_600_000) * 3_600_000;
+        const start = Math.floor((Date.now() - range * 60_000) / 3_600_000) * 3_600_000;
+        const points = [];
+        for (let h = start; h <= end; h += 3_600_000) {
+          const wet = noise(h / 3_600_000) > 0.75;
+          points.push({
+            hourMs: h,
+            precipitationMm: wet ? Math.round(noise(h) * 40) / 10 : 0,
+            snowfallCm: 0,
+            cloudCoverPct: wet ? 90 : 30,
+            windKmh: 12,
+          });
+        }
+        return { available: true, locationName: loc.name, points };
+      }
       case "get_location_stats":
         this.locations.touch(this.settings.activeLocation);
         return this.locations.stats();

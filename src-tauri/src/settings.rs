@@ -125,6 +125,25 @@ pub fn validate(mut s: Settings) -> Result<Settings, AppError> {
             "localAiModel is not a valid model name".into(),
         ));
     }
+    if let Some(w) = s.weather_location.as_mut() {
+        let name = w.name.trim().to_string();
+        let len = name.chars().count();
+        if !(1..=100).contains(&len)
+            || name.chars().any(char::is_control)
+            || !w.latitude.is_finite()
+            || !(-90.0..=90.0).contains(&w.latitude)
+            || !w.longitude.is_finite()
+            || !(-180.0..=180.0).contains(&w.longitude)
+        {
+            return Err(AppError::InvalidInput(
+                "weatherLocation: name 1–100 characters, latitude −90..90, longitude −180..180"
+                    .into(),
+            ));
+        }
+        w.name = name;
+        w.latitude = crate::weather::round2(w.latitude);
+        w.longitude = crate::weather::round2(w.longitude);
+    }
     s.claude_model = s.claude_model.trim().to_string();
     if s.claude_model.is_empty()
         || s.claude_model.len() > 100
@@ -337,6 +356,33 @@ mod tests {
             ..Default::default()
         };
         assert!(validate(ok).is_ok());
+    }
+
+    #[test]
+    fn weather_location_validation() {
+        use crate::models::WeatherLocation;
+        let loc = |n: &str, la: f64, lo: f64| Settings {
+            weather_location: Some(WeatherLocation {
+                name: n.into(),
+                latitude: la,
+                longitude: lo,
+            }),
+            ..Settings::default()
+        };
+        let v = validate(loc(" Rome ", 41.90278, 12.49636)).unwrap();
+        let w = v.weather_location.unwrap();
+        assert_eq!(
+            (w.name.as_str(), w.latitude, w.longitude),
+            ("Rome", 41.9, 12.5)
+        );
+        assert!(validate(loc("", 1.0, 1.0)).is_err());
+        assert!(validate(loc(&"x".repeat(101), 1.0, 1.0)).is_err());
+        assert!(validate(loc("a", 90.5, 0.0)).is_err());
+        assert!(validate(loc("a", 0.0, -180.5)).is_err());
+        assert!(validate(loc("a", f64::NAN, 0.0)).is_err());
+        // Old settings files without the field still load.
+        let old: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(old.weather_location, None);
     }
 
     #[test]

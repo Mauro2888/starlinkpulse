@@ -23,6 +23,7 @@ pub mod tray;
 pub mod updater;
 pub mod uptime;
 pub mod usage;
+pub mod weather;
 pub mod wifi;
 pub mod write_denials;
 
@@ -140,6 +141,8 @@ pub fn run() {
             commands::run_diagnostics,
             commands::get_last_rules_report,
             commands::list_local_models,
+            commands::search_weather_locations,
+            commands::get_weather,
             commands::get_uptime_stats,
             commands::get_data_usage,
             commands::send_test_notification,

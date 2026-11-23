@@ -1,6 +1,6 @@
 import { useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
-import { AlertCircle, History, RefreshCw } from "lucide-react";
-import { useCapabilities, useDataUsage, useEvents, useHistory, useSettings, useUptime } from "@/hooks/use-pulse";
+import { AlertCircle, CloudRain, CloudSnow, History, RefreshCw } from "lucide-react";
+import { useCapabilities, useDataUsage, useEvents, useHistory, useSettings, useUptime, useWeather } from "@/hooks/use-pulse";
 import { useTranslation } from "react-i18next";
 import { BestTimesCard } from "@/components/history/best-times-card";
 import { LocationsCard } from "@/components/history/locations-card";
@@ -23,6 +23,8 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Section, StatePanel } from "@/components/state-panels";
+import { WeatherChart } from "@/components/history/weather-chart";
+import { correlateOutages, isSnow, isWet, weatherAt } from "@/lib/weather";
 import { TimeSeriesChart } from "@/components/history/time-series-chart";
 
 export const RANGES = [
@@ -92,6 +94,8 @@ export function HistoryTab() {
   const caps = useCapabilities();
   const uptime = useUptime();
   const usage = useDataUsage(62);
+  const weather = useWeather(range);
+  const wx = weather.data?.available && weather.data.points.length > 0 ? weather.data : null;
 
   // Recompute the window whenever new data arrives (refresh every minute).
   const toMs = useMemo(() => Date.now(), [history.data, range]);
@@ -100,6 +104,7 @@ export function HistoryTab() {
   const events = useMemo(() => evts.data ?? [], [evts.data]);
   const rows = useMemo(() => bucketHistory(points, fromMs, toMs), [points, fromMs, toMs]);
   const summary = useMemo(() => summarizeHistory(points, events, range), [points, events, range]);
+  const wxCount = useMemo(() => (wx ? correlateOutages(events, wx.points) : null), [wx, events]);
   const hasPower = Boolean(caps?.hasPowerTelemetry) && points.some((p) => isNum(p.powerAvgW));
   const hasEnergy = Boolean(caps?.hasPowerTelemetry);
 
@@ -238,6 +243,17 @@ export function HistoryTab() {
           )}
         </div>
 
+        {wx && (
+          <ChartCard>
+            <WeatherChart series={wx} fromMs={fromMs} toMs={toMs} />
+            {wxCount && wxCount.total > 0 && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                {t("{{wet}} of {{total}} outages during rain or snow", { wet: wxCount.wet, total: wxCount.total })}
+              </p>
+            )}
+          </ChartCard>
+        )}
+
         <Section
           title={t("Outage log")}
           aside={
@@ -257,6 +273,7 @@ export function HistoryTab() {
                       className={cn("size-1.5 shrink-0 rounded-full", isRebootCause(e.cause) ? "bg-foreground/60" : "bg-critical")}
                     />
                     {explainCause(e.cause)}
+                    {wx && !isRebootCause(e.cause) && <WetMark point={weatherAt(wx.points, e.startMs)} />}
                   </span>
                   <span className="num shrink-0 text-right">{formatDurationMs(e.durationMs)}</span>
                 </li>
@@ -304,6 +321,15 @@ export function HistoryTab() {
       {body}
     </div>
   );
+}
+
+function WetMark({ point }: { point: Parameters<typeof isWet>[0] | undefined }) {
+  const { t } = useTranslation();
+  if (!point || !isWet(point)) return null;
+  const snow = isSnow(point);
+  const label = snow ? t("During snow") : t("During rain");
+  const Icon = snow ? CloudSnow : CloudRain;
+  return <Icon className="size-3.5 shrink-0 text-muted-foreground" role="img" aria-label={label} />;
 }
 
 function Stat({ label, value, detail }: { label: string; value: string; detail?: string }) {

@@ -357,6 +357,47 @@ pub struct Settings {
     pub local_ai_url: String,
     pub local_ai_kind: LocalAiKind,
     pub local_ai_model: String,
+    /// Place picked by the user for weather correlation; `None` = feature off.
+    pub weather_location: Option<WeatherLocation>,
+}
+
+/// User-picked place (never taken from the dish GPS). Never log it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeatherLocation {
+    pub name: String,
+    pub latitude: f64,
+    pub longitude: f64,
+}
+
+/// Geocoding search result.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeatherPlace {
+    pub name: String,
+    pub admin1: Option<String>,
+    pub country: Option<String>,
+    pub latitude: f64,
+    pub longitude: f64,
+}
+
+/// One hour of weather (`hour_ms` = start of the hour, Unix ms).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeatherPoint {
+    pub hour_ms: i64,
+    pub precipitation_mm: Option<f64>,
+    pub snowfall_cm: Option<f64>,
+    pub cloud_cover_pct: Option<f64>,
+    pub wind_kmh: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeatherSeries {
+    pub available: bool,
+    pub location_name: Option<String>,
+    pub points: Vec<WeatherPoint>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -511,6 +552,7 @@ impl Default for Settings {
             local_ai_url: "http://localhost:11434".into(),
             local_ai_kind: LocalAiKind::Ollama,
             local_ai_model: String::new(),
+            weather_location: None,
         }
     }
 }
