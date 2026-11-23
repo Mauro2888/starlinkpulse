@@ -67,7 +67,9 @@ pub fn token_matches(given: &str, expected: &str) -> bool {
     }
     let mut diff = g.len() ^ e.len();
     for (i, b) in e.iter().enumerate() {
-        diff |= (b ^ g.get(i).copied().unwrap_or(0)) as usize;
+        // Case-insensitive: TV keyboards often capitalize the first letter.
+        let gb = g.get(i).copied().unwrap_or(0).to_ascii_lowercase();
+        diff |= (b.to_ascii_lowercase() ^ gb) as usize;
     }
     diff == 0
 }
@@ -423,6 +425,7 @@ mod tests {
         }
         assert_ne!(generate_token(), generate_token());
         assert!(token_matches("abc234", "abc234"));
+        assert!(token_matches("Abc234", "abc234"));
         assert!(!token_matches("abc235", "abc234"));
         assert!(!token_matches("abc23", "abc234"));
         assert!(!token_matches("abc2345", "abc234"));
