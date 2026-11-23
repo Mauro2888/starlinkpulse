@@ -95,3 +95,24 @@ All commands are async and return `Result<T, CommandError>`; arguments are camel
   last-24 h latency avg/p95, ping loss, obstruction, throttled minutes, active alerts, outages of
   the last 48 h (totals by cause + newest 50 rows), rule-engine findings, Wi-Fi counts per band /
   quality and weakest dBm (never names). Footer states that no IDs/location/MAC/names are included.
+
+## Weather correlation (backlog, opt-in)
+- Settings: `weatherLocation: WeatherLocation | null` (default `null` = feature off).
+  `WeatherLocation { name: string, latitude: number, longitude: number }`. Backend validates
+  (lat −90..90, lon −180..180, name 1–100 chars) and rounds coordinates to 2 decimals (~1 km).
+  Never taken from the dish GPS; only what the user picked.
+- `search_weather_locations` `query: string` (2–100 chars, trimmed) → `WeatherPlace[]` (max 5):
+  `{ name, admin1: string|null, country: string|null, latitude, longitude }`.
+  `GET https://geocoding-api.open-meteo.com/v1/search?name=<q>&count=5&language=<ui lang>&format=json`.
+  Errors: `invalid_input` (query length), `offline` (network), `timeout`.
+- `get_weather` `rangeMinutes: u32` (1–2880) → `WeatherSeries { available: boolean, locationName: string|null, points: WeatherPoint[] }`.
+  `available:false`, empty points and **no network call** when `weatherLocation` is null.
+  `WeatherPoint { hourMs, precipitationMm, snowfallCm, cloudCoverPct, windKmh }` (numbers nullable), ascending, hours
+  overlapping `[now − range, now]`.
+  `GET https://api.open-meteo.com/v1/forecast?latitude=..&longitude=..&hourly=precipitation,snowfall,cloud_cover,wind_speed_10m&past_days=2&forecast_days=1&timeformat=unixtime&timezone=GMT`.
+  In-memory cache 30 min per (lat, lon); timeout 10 s; no redirects; no API key.
+- Privacy: location/coordinates never logged, never in the support report, CSV export or AI payload.
+- UI: Settings card to search/pick/remove the place (states that the typed place name and the rounded
+  coordinates go to Open-Meteo). History tab: hourly precipitation/snow chart aligned with the latency chart,
+  rain/snow marker on outages whose hour had precipitation ≥ 0.1 mm or snowfall > 0, and a line
+  "N of M outages during rain or snow".
