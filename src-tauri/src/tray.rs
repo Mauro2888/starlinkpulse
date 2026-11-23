@@ -210,6 +210,16 @@ pub fn setup(app: &AppHandle) -> tauri::Result<TraySink> {
                 toggle_main_window(tray.app_handle());
             }
         });
+    // macOS menu bar: monochrome template icon (adapts to light/dark menu bar).
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder
+            .icon(tauri::image::Image::from_bytes(include_bytes!(
+                "../icons/tray-template.png"
+            ))?)
+            .icon_as_template(true);
+    }
+    #[cfg(not(target_os = "macos"))]
     if let Some(icon) = app.default_window_icon().cloned() {
         builder = builder.icon(icon);
     }
