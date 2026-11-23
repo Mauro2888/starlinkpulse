@@ -6,6 +6,8 @@ import { toastError, toastSuccess } from "@/lib/notify";
 import { normalizeError } from "@/lib/errors";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "react-i18next";
+import { tr } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -20,6 +22,7 @@ import {
 
 /** Current version, manual update check and install (with confirmation). */
 export function AppUpdates() {
+  const { t } = useTranslation();
   const [info, setInfo] = useState<UpdateInfo | null>(null);
   const [checking, setChecking] = useState(false);
   const [installing, setInstalling] = useState(false);
@@ -30,7 +33,7 @@ export function AppUpdates() {
     try {
       setInfo(await api.checkForUpdate());
     } catch (e) {
-      toastError(e, "Couldn't check for updates");
+      toastError(e, tr("Couldn't check for updates"));
     } finally {
       setChecking(false);
     }
@@ -41,9 +44,9 @@ export function AppUpdates() {
     try {
       await api.installUpdate();
       // In the desktop app the process restarts; this toast is only seen if it doesn't.
-      toastSuccess("Update installed", "StarlinkPulse is restarting.");
+      toastSuccess(tr("Update installed"), tr("StarlinkPulse is restarting."));
     } catch (e) {
-      toastError(e, "Update failed");
+      toastError(e, tr("Update failed"));
     } finally {
       setInstalling(false);
     }
@@ -54,8 +57,8 @@ export function AppUpdates() {
       await api.openReleasesPage();
     } catch (e) {
       const err = normalizeError(e);
-      if (err.kind === "invalid_input") toast.info("Releases page not configured in this build");
-      else toastError(err, "Couldn't open the releases page");
+      if (err.kind === "invalid_input") toast.info(tr("Releases page not configured in this build"));
+      else toastError(err, tr("Couldn't open the releases page"));
     }
   };
 
@@ -66,25 +69,25 @@ export function AppUpdates() {
     <div className="flex flex-col gap-2 rounded-lg bg-muted/40 p-3 ring-1 ring-border">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm">
-          Version <span className="num">{version}</span>
+          {t("Version")} <span className="num">{version}</span>
         </p>
         {info?.updaterConfigured !== false && (
           <Button type="button" size="sm" variant="outline" onClick={check} disabled={checking || installing}>
             {checking ? <Loader2 className="animate-spin" aria-hidden /> : <RefreshCw aria-hidden />}
-            Check for updates
+            {t("Check for updates")}
           </Button>
         )}
       </div>
 
       {info && !info.updaterConfigured && (
         <p className="text-xs text-muted-foreground">
-          Updates: download new versions from{" "}
+          {t("Updates: download new versions from")}{" "}
           <button
             type="button"
             onClick={() => void openReleases()}
             className="rounded-sm font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-2"
           >
-            GitHub Releases
+            {t("GitHub Releases")}
           </button>
           .
         </p>
@@ -92,17 +95,17 @@ export function AppUpdates() {
 
       {/* The only live region: a single status line, always mounted so changes are announced. */}
       <p role="status" aria-live="polite" className={cn("flex items-center gap-1.5 empty:hidden", info?.available ? "text-sm font-medium" : "text-xs text-muted-foreground")}>
-        {checking && !info ? "Checking for updates…" : null}
-        {installing ? "Installing update…" : null}
-        {info && !info.updaterConfigured ? "This build can't update itself." : null}
+        {checking && !info ? t("Checking for updates…") : null}
+        {installing ? t("Installing update…") : null}
+        {info && !info.updaterConfigured ? t("This build can't update itself.") : null}
         {!installing && info?.updaterConfigured && !info.available && (
           <>
-            <CircleCheck className="size-3.5 text-good" aria-hidden /> You're up to date.
+            <CircleCheck className="size-3.5 text-good" aria-hidden /> {t("You're up to date.")}
           </>
         )}
         {!installing && info?.updaterConfigured && info.available && (
           <>
-            Version <span className="num">{info.latestVersion}</span> is available
+            {t("Version {{version}} is available", { version: info.latestVersion })}
           </>
         )}
       </p>
@@ -117,7 +120,7 @@ export function AppUpdates() {
           <div>
             <Button type="button" size="sm" onClick={() => setConfirmOpen(true)} disabled={installing}>
               {installing ? <Loader2 className="animate-spin" aria-hidden /> : <Download aria-hidden />}
-              {installing ? "Installing…" : "Install and restart"}
+              {installing ? t("Installing…") : t("Install and restart")}
             </Button>
           </div>
         </div>
@@ -126,15 +129,14 @@ export function AppUpdates() {
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Install version {info?.latestVersion} and restart?</AlertDialogTitle>
+            <AlertDialogTitle>{t("Install version {{version}} and restart?", { version: info?.latestVersion })}</AlertDialogTitle>
             <AlertDialogDescription>
-              StarlinkPulse downloads the update, checks its signature, installs it and restarts. Monitoring pauses
-              for a few seconds. Your settings and history are kept.
+              {t("StarlinkPulse downloads the update, checks its signature, installs it and restarts. Monitoring pauses for a few seconds. Your settings and history are kept.")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Not now</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void install()}>Install and restart</AlertDialogAction>
+            <AlertDialogCancel>{t("Not now")}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void install()}>{t("Install and restart")}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

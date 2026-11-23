@@ -4,6 +4,10 @@ import type { AlignmentModeEvent, TelemetrySnapshot } from "@/types/models";
 import { api, events } from "@/lib/api";
 import { toastError } from "@/lib/notify";
 import { cn } from "@/lib/utils";
+import { fmtNum } from "@/lib/format";
+import { useTranslation } from "react-i18next";
+import { tr } from "@/i18n";
+import { tk } from "@/i18n/keys";
 import { compassPoint, normalizeAzimuth } from "@/lib/sky";
 import {
   beepIntervalMs,
@@ -31,14 +35,14 @@ function reducer(state: GuideState, action: Action): GuideState {
 }
 
 const HOLD_COPY: Record<HoldReason, string> = {
-  uncertain: "The dish is measuring where it points. Keep it still for a few seconds.",
-  estimating: "The dish is still working out its position. Keep it still.",
-  moving: "Readings are settling after the last move. Keep it still.",
+  uncertain: tk("The dish is measuring where it points. Keep it still for a few seconds."),
+  estimating: tk("The dish is still working out its position. Keep it still."),
+  moving: tk("Readings are settling after the last move. Keep it still."),
 };
 
 function fmtDeg(d: number): string {
   const a = Math.abs(d);
-  return `${a >= 10 ? Math.round(a) : a.toFixed(1)}°`;
+  return `${a >= 10 ? fmtNum(Math.round(a), 0) : fmtNum(a, 1, true)}°`;
 }
 
 function fmtClock(s: number): string {
@@ -64,6 +68,7 @@ interface Props {
 
 /** Full-window guided alignment for dishes without motors. Esc exits. */
 export function AlignMode({ snapshot, onClose }: Props) {
+  const { t } = useTranslation();
   const [guide, dispatch] = useReducer(reducer, undefined, initialGuide);
   const [sound, setSound] = useState(loadAlignAudio);
   const [endsAt, setEndsAt] = useState<number | null>(null);
@@ -76,7 +81,7 @@ export function AlignMode({ snapshot, onClose }: Props) {
   const start = useCallback(() => {
     setEnded(false);
     dispatch({ type: "reset" });
-    api.setAlignmentMode(true).catch((e) => toastError(e, "Couldn't start guided alignment"));
+    api.setAlignmentMode(true).catch((e) => toastError(e, tr("Couldn't start guided alignment")));
   }, []);
 
   useEffect(() => {
@@ -171,25 +176,25 @@ export function AlignMode({ snapshot, onClose }: Props) {
     >
       <header className="flex flex-wrap items-center gap-3 border-b border-black/15 px-4 py-3 sm:px-8">
         <h1 id="align-title" className="text-lg font-semibold tracking-tight">
-          Guided alignment
+          {t("Guided alignment")}
         </h1>
-        <span className="num text-sm text-black/70" aria-label={remainingS !== null ? `${fmtClock(remainingS)} left` : undefined}>
-          {remainingS !== null ? `${fmtClock(remainingS)} left` : ""}
+        <span className="num text-sm text-black/70">
+          {remainingS !== null ? t("{{time}} left", { time: fmtClock(remainingS) }) : ""}
         </span>
         <div className="ml-auto flex items-center gap-2">
-          <OutdoorButton onClick={toggleSound} pressed={sound} label={sound ? "Sound on" : "Sound off"}>
+          <OutdoorButton onClick={toggleSound} pressed={sound} label={sound ? t("Sound on") : t("Sound off")}>
             {sound ? <Volume2 className="size-5" aria-hidden /> : <VolumeX className="size-5" aria-hidden />}
-            <span className="hidden sm:inline">{sound ? "Sound on" : "Sound off"}</span>
+            <span className="hidden sm:inline">{sound ? t("Sound on") : t("Sound off")}</span>
           </OutdoorButton>
-          <OutdoorButton onClick={onClose} label="Exit guided alignment (Esc)">
+          <OutdoorButton onClick={onClose} label={t("Exit guided alignment (Esc)")}>
             <X className="size-5" aria-hidden />
-            <span className="hidden sm:inline">Exit</span>
+            <span className="hidden sm:inline">{t("Exit")}</span>
           </OutdoorButton>
         </div>
       </header>
 
-      <ol className="flex justify-center gap-2 px-4 pt-4 text-sm font-medium sm:gap-4" aria-label="Steps">
-        {["Direction", "Tilt", "Hold"].map((label, i) => (
+      <ol className="flex justify-center gap-2 px-4 pt-4 text-sm font-medium sm:gap-4" aria-label={t("Steps")}>
+        {[tk("Direction"), tk("Tilt"), tk("Hold")].map((label, i) => (
           <li
             key={label}
             aria-current={step === i + 1 ? "step" : undefined}
@@ -199,19 +204,19 @@ export function AlignMode({ snapshot, onClose }: Props) {
             )}
           >
             {step > i + 1 ? <Check className="size-4" aria-hidden /> : <span className="num">{i + 1}</span>}
-            {label}
+            {t(label)}
           </li>
         ))}
       </ol>
 
       <p role="status" className="sr-only">
-        {ended ? "Guided alignment stopped." : announce(guide.phase)}
+        {ended ? t("Guided alignment stopped.") : announce(guide.phase)}
       </p>
       <main className="flex flex-1 flex-col items-center justify-center gap-4 px-6 py-6 text-center">
         {ended ? (
-          <Stage title="Guided alignment stopped" sub="Fast readings turn off automatically after 10 minutes.">
+          <Stage title={t("Guided alignment stopped")} sub={t("Fast readings turn off automatically after 10 minutes.")}>
             <OutdoorButton onClick={start} big>
-              Start again
+              {t("Start again")}
             </OutdoorButton>
           </Stage>
         ) : (
@@ -222,13 +227,17 @@ export function AlignMode({ snapshot, onClose }: Props) {
       <footer className="flex flex-col items-center gap-1 border-t border-black/15 px-4 py-3 text-center text-sm text-black/75">
         {a && a.azimuthDeg !== null && a.desiredAzimuthDeg !== null && (
           <p className="num">
-            Facing {normalizeAzimuth(a.azimuthDeg).toFixed(1)}° · target {normalizeAzimuth(a.desiredAzimuthDeg).toFixed(1)}°
-            {a.elevationDeg !== null && a.desiredElevationDeg !== null &&
-              ` · tilt ${a.elevationDeg.toFixed(1)}° / ${a.desiredElevationDeg.toFixed(1)}°`}
-            {a.uncertaintyDeg !== null && ` · ±${a.uncertaintyDeg.toFixed(1)}°`}
+            {t("Facing {{now}}° · target {{target}}°", {
+              now: fmtNum(normalizeAzimuth(a.azimuthDeg), 1, true),
+              target: fmtNum(normalizeAzimuth(a.desiredAzimuthDeg), 1, true),
+            })}
+            {a.elevationDeg !== null &&
+              a.desiredElevationDeg !== null &&
+              ` · ${t("tilt {{now}}° / {{target}}°", { now: fmtNum(a.elevationDeg, 1, true), target: fmtNum(a.desiredElevationDeg, 1, true) })}`}
+            {a.uncertaintyDeg !== null && ` · ±${fmtNum(a.uncertaintyDeg, 1, true)}°`}
           </p>
         )}
-        <p>The dish recalculates the recommended direction; it can shift slightly after you move it.</p>
+        <p>{t("The dish recalculates the recommended direction; it can shift slightly after you move it.")}</p>
       </footer>
     </div>
   );
@@ -238,17 +247,17 @@ export function AlignMode({ snapshot, onClose }: Props) {
 function announce(phase: GuidePhase): string {
   switch (phase.kind) {
     case "waiting":
-      return "Waiting for the dish.";
+      return tr("Waiting for the dish.");
     case "hold":
-      return "Hold still.";
+      return tr("Hold still.");
     case "direction":
-      return `Step 1: rotate ${phase.deltaDeg > 0 ? "clockwise" : "counter-clockwise"}.`;
+      return phase.deltaDeg > 0 ? tr("Step 1: rotate clockwise.") : tr("Step 1: rotate counter-clockwise.");
     case "tilt":
-      return `Step 2: tilt ${phase.deltaDeg > 0 ? "up" : "down"}.`;
+      return phase.deltaDeg > 0 ? tr("Step 2: tilt up.") : tr("Step 2: tilt down.");
     case "holding":
-      return "In position. Hold it there.";
+      return tr("In position. Hold it there.");
     case "done":
-      return "Aligned.";
+      return tr("Aligned.");
   }
 }
 
@@ -265,17 +274,18 @@ function PhaseView({
   onRestart: () => void;
   onFinish: () => void;
 }) {
+  const { t } = useTranslation();
   switch (phase.kind) {
     case "waiting":
       return (
-        <Stage icon={<Loader2 className="size-16 animate-spin motion-reduce:animate-none" aria-hidden />} title="Waiting for the dish…">
-          Alignment readings arrive about once a second.
+        <Stage icon={<Loader2 className="size-16 animate-spin motion-reduce:animate-none" aria-hidden />} title={t("Waiting for the dish…")}>
+          {t("Alignment readings arrive about once a second.")}
         </Stage>
       );
     case "hold":
       return (
-        <Stage icon={<Loader2 className="size-16 animate-spin motion-reduce:animate-none" aria-hidden />} title="Hold still…">
-          {HOLD_COPY[phase.reason]}
+        <Stage icon={<Loader2 className="size-16 animate-spin motion-reduce:animate-none" aria-hidden />} title={t("Hold still…")}>
+          {t(HOLD_COPY[phase.reason])}
         </Stage>
       );
     case "direction": {
@@ -286,11 +296,15 @@ function PhaseView({
           <span className="text-[#0b4fb3]">
             <RotateArrow clockwise={cw} />
           </span>
-          <p className="text-2xl font-semibold sm:text-3xl">Rotate {cw ? "clockwise" : "counter-clockwise"}</p>
+          <p className="text-2xl font-semibold sm:text-3xl">{cw ? t("Rotate clockwise") : t("Rotate counter-clockwise")}</p>
           <p className="num text-7xl leading-none font-semibold tracking-tight sm:text-9xl">{fmtDeg(phase.deltaDeg)}</p>
           <p className="text-lg text-black/75">
-            Seen from above
-            {typeof target === "number" && `, to face ${Math.round(normalizeAzimuth(target))}° ${compassPoint(target)}`}
+            {typeof target === "number"
+              ? t("Seen from above, to face {{deg}}° {{point}}", {
+                  deg: Math.round(normalizeAzimuth(target)),
+                  point: t(compassPoint(target)),
+                })
+              : t("Seen from above")}
           </p>
         </>
       );
@@ -301,9 +315,13 @@ function PhaseView({
       return (
         <>
           <Icon className="size-36 text-[#0b4fb3] sm:size-48" strokeWidth={2.5} aria-hidden />
-          <p className="text-2xl font-semibold sm:text-3xl">Tilt {up ? "up" : "down"}</p>
+          <p className="text-2xl font-semibold sm:text-3xl">{up ? t("Tilt up") : t("Tilt down")}</p>
           <p className="num text-7xl leading-none font-semibold tracking-tight sm:text-9xl">{fmtDeg(phase.deltaDeg)}</p>
-          <p className="text-lg text-black/75">Point the dish face {up ? "higher" : "lower"}. Direction is already good.</p>
+          <p className="text-lg text-black/75">
+            {up
+              ? t("Point the dish face higher. Direction is already good.")
+              : t("Point the dish face lower. Direction is already good.")}
+          </p>
         </>
       );
     }
@@ -313,13 +331,11 @@ function PhaseView({
       return (
         <>
           <Check className="size-32 text-[#0a6b2b] sm:size-40" strokeWidth={3} aria-hidden />
-          <p className="text-3xl font-semibold sm:text-4xl">Hold it there</p>
-          <p className="text-lg text-black/75">
-            Keep the dish still for <span className="num font-semibold text-black">{left}</span> more second{left === 1 ? "" : "s"}.
-          </p>
+          <p className="text-3xl font-semibold sm:text-4xl">{t("Hold it there")}</p>
+          <p className="text-lg text-black/75">{t("Keep the dish still for {{count}} more seconds.", { count: left })}</p>
           <div
             role="progressbar"
-            aria-label="Holding in position"
+            aria-label={t("Holding in position")}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={Math.round(pct)}
@@ -335,42 +351,42 @@ function PhaseView({
       return (
         <>
           <Check className="size-32 text-[#0a6b2b] sm:size-40" strokeWidth={3} aria-hidden />
-          <p className="text-4xl font-semibold sm:text-5xl">Aligned ✓</p>
+          <p className="text-4xl font-semibold sm:text-5xl">{t("Aligned ✓")}</p>
           {guide.start && last && (
             <table className="num text-lg">
-              <caption className="sr-only">Before and after</caption>
+              <caption className="sr-only">{t("Before and after")}</caption>
               <thead>
                 <tr className="text-sm text-black/65">
                   <th scope="col" className="px-3 font-normal">
-                    <span className="sr-only">Axis</span>
+                    <span className="sr-only">{t("Axis")}</span>
                   </th>
-                  <th scope="col" className="px-3 font-normal">Before</th>
-                  <th scope="col" className="px-3 font-normal">Now</th>
+                  <th scope="col" className="px-3 font-normal">{t("Before")}</th>
+                  <th scope="col" className="px-3 font-normal">{t("Now")}</th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
-                  <th scope="row" className="px-3 text-left font-normal text-black/75">Direction</th>
-                  <td className="px-3">{guide.start.az.toFixed(1)}°</td>
-                  <td className="px-3 font-semibold">{last.az.toFixed(1)}°</td>
+                  <th scope="row" className="px-3 text-left font-normal text-black/75">{t("Direction")}</th>
+                  <td className="px-3">{fmtNum(guide.start.az, 1, true)}°</td>
+                  <td className="px-3 font-semibold">{fmtNum(last.az, 1, true)}°</td>
                 </tr>
                 {guide.start.el !== null && last.el !== null && (
                   <tr>
-                    <th scope="row" className="px-3 text-left font-normal text-black/75">Tilt</th>
-                    <td className="px-3">{guide.start.el.toFixed(1)}°</td>
-                    <td className="px-3 font-semibold">{last.el.toFixed(1)}°</td>
+                    <th scope="row" className="px-3 text-left font-normal text-black/75">{t("Tilt")}</th>
+                    <td className="px-3">{fmtNum(guide.start.el, 1, true)}°</td>
+                    <td className="px-3 font-semibold">{fmtNum(last.el, 1, true)}°</td>
                   </tr>
                 )}
               </tbody>
             </table>
           )}
-          <p className="text-lg text-black/75">Check the Sky view again in a few hours.</p>
+          <p className="text-lg text-black/75">{t("Check the Sky view again in a few hours.")}</p>
           <div className="flex gap-3">
             <OutdoorButton onClick={onFinish} big primary>
-              Finish
+              {t("Finish")}
             </OutdoorButton>
             <OutdoorButton onClick={onRestart} big>
-              Check again
+              {t("Check again")}
             </OutdoorButton>
           </div>
         </>

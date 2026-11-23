@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import { tk } from "@/i18n/keys";
 import { lazy, Suspense, useEffect, useState } from "react";
 import {
   Activity,
@@ -28,10 +30,10 @@ const HistoryTab = lazy(() =>
 );
 
 const TABS = [
-  { value: "live", label: "Live", icon: Activity },
-  { value: "history", label: "History", icon: ChartLine },
-  { value: "controls", label: "Controls", icon: SlidersHorizontal },
-  { value: "diagnose", label: "Diagnose", icon: Stethoscope },
+  { value: "live", label: tk("Live"), icon: Activity },
+  { value: "history", label: tk("History"), icon: ChartLine },
+  { value: "controls", label: tk("Controls"), icon: SlidersHorizontal },
+  { value: "diagnose", label: tk("Diagnose"), icon: Stethoscope },
 ] as const;
 
 /** Waits for the target tab to render, then scrolls to and focuses an element. */
@@ -65,6 +67,8 @@ function Dashboard() {
   const connection = useConnection();
   const capabilities = useCapabilities();
   const { settings } = useSettings();
+  // Subscribing here re-renders the whole dashboard when the language changes.
+  const { t } = useTranslation();
 
   // Cmd/Ctrl + 1..4 switches tabs.
   useEffect(() => {
@@ -81,11 +85,12 @@ function Dashboard() {
   }, []);
 
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col gap-3 px-3 pt-3 pb-4 md:px-5 md:pt-4">
+    <div className="flex min-h-full w-full flex-col gap-3 px-3 pt-3 pb-4 md:px-5 md:pt-4 dash4:px-8">
       <AppHeader
         connection={connection}
         capabilities={capabilities}
         readOnly={settings?.readOnly ?? null}
+        location={settings ? settings.activeLocation : undefined}
       />
       <Tabs
         value={tab}
@@ -93,15 +98,15 @@ function Dashboard() {
         className="gap-3"
       >
         <TabsList className="w-full md:w-fit">
-          {TABS.map((t, i) => (
+          {TABS.map((x, i) => (
             <TabsTrigger
-              key={t.value}
-              value={t.value}
+              key={x.value}
+              value={x.value}
               className="px-2 sm:px-3"
-              title={`${t.label} (⌘${i + 1})`}
+              title={`${t(x.label)} (⌘${i + 1})`}
             >
-              <t.icon aria-hidden />
-              {t.label}
+              <x.icon aria-hidden />
+              {t(x.label)}
             </TabsTrigger>
           ))}
         </TabsList>

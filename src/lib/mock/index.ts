@@ -16,6 +16,7 @@ import { PROFILES, type ProfileSpec } from "@/lib/mock/profiles";
 import { mockReport, mockSummary } from "@/lib/mock/advisor";
 import { mockObstructionMap } from "@/lib/mock/obstruction";
 import { mockUptime, mockUsage } from "@/lib/mock/usage";
+import { MockLocations, mockEnergy, mockTimeOfDay } from "@/lib/mock/v11";
 import { isInsufficientHistory, isLoopbackUrl } from "@/lib/advisor";
 import type { AiReport, SnowMeltMode } from "@/types/models";
 
@@ -52,6 +53,9 @@ export const DEFAULT_SETTINGS: Settings = {
   localAiUrl: "http://localhost:11434",
   localAiKind: "ollama",
   localAiModel: "",
+  language: "system",
+  activeLocation: null,
+  battery: null,
 };
 
 function fail(kind: CommandError["kind"], message: string): never {
@@ -67,7 +71,12 @@ function noise(seed: number): number {
 function loadSettings(): Settings {
   // Dev aid: `?mockProfile=obstructed` forces a profile for UI work.
   const forced = typeof location !== "undefined" ? new URLSearchParams(location.search).get("mockProfile") : null;
-  if (forced && forced in PROFILES) return { ...DEFAULT_SETTINGS, mockMode: "on", mockProfile: forced as Settings["mockProfile"] };
+  // `?lang=it` sets the language too (screenshots).
+  const lang = typeof location !== "undefined" ? new URLSearchParams(location.search).get("lang") : null;
+  const language = lang === "it" || lang === "en" ? lang : DEFAULT_SETTINGS.language;
+  if (forced && forced in PROFILES) {
+    return { ...DEFAULT_SETTINGS, mockMode: "on", mockProfile: forced as Settings["mockProfile"], language };
+  }
   try {
     const raw = globalThis.localStorage?.getItem(SETTINGS_KEY);
     if (raw) return { ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Partial<Settings>) };
@@ -90,6 +99,7 @@ export class MockBackend implements Backend {
   private hasKey = false;
   private lastRulesReport: AiReport | null = null;
   private updateInstalled = false;
+  private locations = new MockLocations();
   private lastAiReport: AiReport | null = null;
   private readonly startMs = Date.now();
 
@@ -202,6 +212,30 @@ export class MockBackend implements Backend {
         await new Promise((r) => setTimeout(r, 2_000));
         this.updateInstalled = true;
         return null;
+      case "get_location_stats":
+        this.locations.touch(this.settings.activeLocation);
+        return this.locations.stats();
+      case "rename_location": {
+        const from = String(args.from ?? "");
+        const to = String(args.to ?? "").trim();
+        if (!to || to.length > 40) fail("invalid_input", "Location names need 1–40 characters.");
+        this.locations.rename(from, to);
+        if (this.settings.activeLocation === from) this.settings = { ...this.settings, activeLocation: to };
+        return null;
+      }
+      case "delete_location": {
+        const name = String(args.name ?? "");
+        this.locations.remove(name);
+        if (this.settings.activeLocation === name) this.settings = { ...this.settings, activeLocation: null };
+        return null;
+      }
+      case "get_time_of_day_stats": {
+        const days = Number(args.days);
+        if (!(days >= 7 && days <= 90)) fail("invalid_input", "Days must be between 7 and 90.");
+        return mockTimeOfDay(this.profile, days);
+      }
+      case "get_energy":
+        return mockEnergy(this.profile, Math.min(90, Math.max(1, Number(args.days) || 14)));
       case "set_alignment_mode":
         this.setAlignmentMode(Boolean(args.enabled));
         return null;
@@ -280,6 +314,12 @@ export class MockBackend implements Backend {
     if (next.aiProvider === "local" && !/^https?:\/\/\S+$/.test(next.localAiUrl)) {
       fail("invalid_input", "Local AI address must start with http:// or https://.");
     }
+    if (next.activeLocation !== null && (next.activeLocation.trim() === "" || next.activeLocation.length > 40)) {
+      fail("invalid_input", "Location names need 1–40 characters.");
+    }
+    if (next.battery && !(next.battery.capacityAh > 0 && next.battery.voltage > 0 && next.battery.usableFraction >= 0.1 && next.battery.usableFraction <= 1)) {
+      fail("invalid_input", "Battery values are out of range.");
+    }
     if (next.dataCapGb !== null && !(next.dataCapGb > 0)) fail("invalid_input", "Data cap must be a positive number of GB.");
     if (!(Number.isInteger(next.billingCycleDay) && next.billingCycleDay >= 1 && next.billingCycleDay <= 28)) {
       fail("invalid_input", "Billing cycle day must be between 1 and 28.");
@@ -352,6 +392,8 @@ export class MockBackend implements Backend {
       powerW: p.powerW == null ? null : (this.stowed ? p.powerW * 0.6 : p.powerW) * wobble(120, 0.05) * jitter(0.06),
       popPingLatencyMs: this.stowed ? null : p.latencyMs * wobble(45, 0.15) * jitter(0.25) * (obstructedNow ? 1.6 : 1),
       popPingDropRate: this.stowed ? 1 : Math.max(0, p.dropRate * jitter(0.9) * (obstructedNow ? 6 : 1)),
+      jitterMs: this.stowed ? null : (p.obstructed > 0.05 ? 22 : p.restricted ? 14 : 5) * jitter(0.5),
+      readiness: this.stowed ? null : mockReadiness(p, obstructedNow),
       snrAboveNoiseFloor: !this.stowed,
       signalQuality: p.hasSignalQuality ? Math.min(1, 0.86 * jitter(0.08)) : null,
       obstruction: {
@@ -516,6 +558,17 @@ export class MockBackend implements Backend {
   private emit(event: string, payload: unknown): void {
     this.listeners.get(event)?.forEach((h) => h(payload));
   }
+}
+
+/** Rough readiness like the Rust thresholds (docs/diagnostics.md); mock only. */
+function mockReadiness(p: ProfileSpec, obstructedNow: boolean): TelemetrySnapshot["readiness"] {
+  const bad = obstructedNow || p.dropRate > 0.03;
+  const slow = p.restricted !== null;
+  return {
+    videoCall: bad ? "poor" : p.latencyMs > 50 ? "fair" : "good",
+    gaming: bad ? "poor" : p.latencyMs > 40 || slow ? "fair" : "good",
+    streaming: bad ? "fair" : slow ? "poor" : "good",
+  };
 }
 
 let instance: MockBackend | null = null;

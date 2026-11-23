@@ -1,27 +1,33 @@
-import { Lock } from "lucide-react";
+import { useState } from "react";
+import { Lock, MapPin } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { ConnectionStatus, DishCapabilities } from "@/types/models";
 import { cn } from "@/lib/utils";
 import { dishModelName } from "@/lib/dish";
+import { tk } from "@/i18n/keys";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { LocationDialog } from "@/components/locations/location-dialog";
 
 const STATE_META = {
-  connected: { label: "Connected", dot: "bg-good", text: "text-foreground", pulse: true },
-  mock: { label: "Mock data", dot: "bg-primary", text: "text-foreground", pulse: true },
-  connecting: { label: "Connecting", dot: "bg-warning", text: "text-foreground", pulse: true },
-  offline: { label: "Offline", dot: "bg-critical", text: "text-foreground", pulse: false },
+  connected: { label: tk("Connected"), dot: "bg-good", text: "text-foreground", pulse: true },
+  mock: { label: tk("Mock data"), dot: "bg-primary", text: "text-foreground", pulse: true },
+  connecting: { label: tk("Connecting"), dot: "bg-warning", text: "text-foreground", pulse: true },
+  offline: { label: tk("Offline"), dot: "bg-critical", text: "text-foreground", pulse: false },
 } as const;
 
 export function ConnectionBadge({ status }: { status: ConnectionStatus | null }) {
+  const { t } = useTranslation();
   const meta = status ? STATE_META[status.state] : STATE_META.connecting;
+  const label = t(meta.label);
   const detail = !status
-    ? "Starting up"
+    ? t("Starting up")
     : status.state === "mock"
-      ? "Showing simulated data, not your dish"
+      ? t("Showing simulated data, not your dish")
       : status.state === "offline"
-        ? (status.lastError ?? `No answer from ${status.dishAddress}`)
+        ? (status.lastError ?? t("No answer from {{address}}", { address: status.dishAddress }))
         : status.state === "connecting"
-          ? `Contacting ${status.dishAddress}`
-          : `Live from ${status.dishAddress}`;
+          ? t("Contacting {{address}}", { address: status.dishAddress })
+          : t("Live from {{address}}", { address: status.dishAddress });
 
   return (
     <Tooltip>
@@ -29,7 +35,7 @@ export function ConnectionBadge({ status }: { status: ConnectionStatus | null })
         <span
           tabIndex={0}
           role="status"
-          aria-label={`Connection: ${meta.label}. ${detail}`}
+          aria-label={t("Connection: {{state}}. {{detail}}", { state: label, detail })}
           className={cn(
             "inline-flex h-6 items-center gap-1.5 rounded-full bg-muted/70 px-2.5 text-xs font-medium ring-1 ring-border",
             "focus-visible:outline-2 focus-visible:outline-offset-2",
@@ -40,7 +46,7 @@ export function ConnectionBadge({ status }: { status: ConnectionStatus | null })
             {meta.pulse && <span className={cn("pulse-ring absolute inset-0 rounded-full", meta.dot)} />}
             <span className={cn("relative size-2 rounded-full", meta.dot)} />
           </span>
-          {meta.label}
+          {label}
         </span>
       </TooltipTrigger>
       <TooltipContent>{detail}</TooltipContent>
@@ -60,41 +66,69 @@ function LogoMark() {
   );
 }
 
+/** Header chip showing the current location tag; opens the location manager. */
+function LocationChip({ location }: { location: string | null }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label={location ? t("Location: {{name}}. Change location", { name: location }) : t("Set location")}
+        className={cn(
+          "inline-flex h-6 max-w-32 items-center gap-1 rounded-full px-2 text-xs ring-1 ring-border hover:bg-muted/60 focus-visible:outline-2 sm:max-w-48",
+          location ? "text-foreground" : "text-muted-foreground",
+        )}
+      >
+        <MapPin className="size-3 shrink-0" aria-hidden />
+        <span className="truncate">{location ?? t("No location")}</span>
+      </button>
+      {open && <LocationDialog open={open} onOpenChange={setOpen} />}
+    </>
+  );
+}
+
 export function AppHeader({
   connection,
   capabilities,
   readOnly,
+  location,
 }: {
   connection: ConnectionStatus | null;
   capabilities: DishCapabilities | null;
   readOnly: boolean | null;
+  /** Active location tag; undefined hides the chip (settings not loaded). */
+  location?: string | null;
 }) {
+  const { t } = useTranslation();
   const model = dishModelName(capabilities);
   return (
-    <header className="flex items-center gap-2.5 px-1">
+    <header className="flex items-center gap-2 px-1">
       <LogoMark />
       <div className="min-w-0 flex-1">
         <h1 className="text-sm leading-tight font-semibold tracking-tight">StarlinkPulse</h1>
         <p className="truncate text-xs leading-tight text-muted-foreground">
-          {model ?? "Dish model unknown"}
+          {model ?? t("Dish model unknown")}
           {capabilities?.softwareVersion && (
             <span className="hidden sm:inline"> · fw {capabilities.softwareVersion}</span>
           )}
         </p>
       </div>
+      {location !== undefined && <LocationChip location={location} />}
       {readOnly && (
         <Tooltip>
           <TooltipTrigger asChild>
             <span
               tabIndex={0}
               role="img"
-              aria-label="Read-only mode is on"
-              className="grid size-6 place-items-center rounded-full text-muted-foreground ring-1 ring-border focus-visible:outline-2"
+              aria-label={t("Read-only mode is on")}
+              className="grid size-6 shrink-0 place-items-center rounded-full text-muted-foreground ring-1 ring-border focus-visible:outline-2"
             >
               <Lock className="size-3" aria-hidden />
             </span>
           </TooltipTrigger>
-          <TooltipContent>Read-only: dish controls are locked</TooltipContent>
+          <TooltipContent>{t("Read-only: dish controls are locked")}</TooltipContent>
         </Tooltip>
       )}
       <ConnectionBadge status={connection} />

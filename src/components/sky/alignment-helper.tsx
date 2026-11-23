@@ -2,7 +2,9 @@ import { CircleCheck, Compass, Footprints } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { AlignmentStats } from "@/types/models";
 import { alignmentGuidance, AZ_TOLERANCE_DEG, EL_TOLERANCE_DEG, normalizeAzimuth } from "@/lib/sky";
-import { isNum } from "@/lib/format";
+import { fmtNum, isNum } from "@/lib/format";
+import { useTranslation } from "react-i18next";
+import { tr } from "@/i18n";
 import { StatusDot } from "@/components/metric";
 
 function polar(azDeg: number, r: number): [number, number] {
@@ -31,11 +33,11 @@ function Dial({ current, desired }: { current: number; desired: number }) {
         ["E", 90],
         ["S", 180],
         ["W", 270],
-      ].map(([t, az]) => {
+      ].map(([label, az]) => {
         const [x, y] = polar(az as number, 51);
         return (
-          <text key={t} x={x} y={y + 2.4} fontSize={7.5} textAnchor="middle" fill="var(--muted-foreground)" fontWeight={600}>
-            {t}
+          <text key={label} x={x} y={y + 2.4} fontSize={7.5} textAnchor="middle" fill="var(--muted-foreground)" fontWeight={600}>
+            {tr(label as string)}
           </text>
         );
       })}
@@ -70,6 +72,7 @@ export function AlignmentHelper({
   onStartGuided?: () => void;
 }) {
   const g = alignmentGuidance(alignment);
+  const { t } = useTranslation();
   if (!g || !isNum(alignment.azimuthDeg) || !isNum(alignment.desiredAzimuthDeg)) return null;
 
   return (
@@ -80,12 +83,12 @@ export function AlignmentHelper({
           {g.aligned ? (
             <p className="flex items-center gap-2 text-sm font-medium">
               <CircleCheck className="size-4 shrink-0 text-good" aria-hidden />
-              Aligned within tolerance
+              {t("Aligned within tolerance")}
             </p>
           ) : (
             <p className="flex items-center gap-2 text-sm font-medium">
               <Compass className="size-4 shrink-0 text-warning" aria-hidden />
-              Adjust the dish
+              {t("Adjust the dish")}
             </p>
           )}
           <ul className="flex flex-col gap-1 text-xs">
@@ -104,27 +107,27 @@ export function AlignmentHelper({
       </div>
 
       <table className="w-full text-xs">
-        <caption className="sr-only">Dish orientation now and target</caption>
+        <caption className="sr-only">{t("Dish orientation now and target")}</caption>
         <thead>
           <tr className="text-left text-muted-foreground">
             <th scope="col" className="font-normal">
-              <span className="sr-only">Axis</span>
+              <span className="sr-only">{t("Axis")}</span>
             </th>
-            <th scope="col" className="font-normal">Now</th>
-            <th scope="col" className="font-normal">Target</th>
+            <th scope="col" className="font-normal">{t("Now")}</th>
+            <th scope="col" className="font-normal">{t("Target")}</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <th scope="row" className="pr-3 text-left font-normal text-muted-foreground">Direction</th>
-            <td className="num">{normalizeAzimuth(alignment.azimuthDeg).toFixed(1)}°</td>
-            <td className="num">{normalizeAzimuth(alignment.desiredAzimuthDeg).toFixed(1)}°</td>
+            <th scope="row" className="pr-3 text-left font-normal text-muted-foreground">{t("Direction")}</th>
+            <td className="num">{fmtNum(normalizeAzimuth(alignment.azimuthDeg), 1, true)}°</td>
+            <td className="num">{fmtNum(normalizeAzimuth(alignment.desiredAzimuthDeg), 1, true)}°</td>
           </tr>
           {isNum(alignment.elevationDeg) && isNum(alignment.desiredElevationDeg) && (
             <tr>
-              <th scope="row" className="pr-3 text-left font-normal text-muted-foreground">Elevation</th>
-              <td className="num">{alignment.elevationDeg.toFixed(1)}°</td>
-              <td className="num">{alignment.desiredElevationDeg.toFixed(1)}°</td>
+              <th scope="row" className="pr-3 text-left font-normal text-muted-foreground">{t("Elevation")}</th>
+              <td className="num">{fmtNum(alignment.elevationDeg, 1, true)}°</td>
+              <td className="num">{fmtNum(alignment.desiredElevationDeg, 1, true)}°</td>
             </tr>
           )}
         </tbody>
@@ -134,18 +137,16 @@ export function AlignmentHelper({
       )}
 
       <p className="text-[0.6875rem] leading-relaxed text-muted-foreground">
-        Needle: where the dish faces now. Dot: target. Good within ±{AZ_TOLERANCE_DEG}° direction and ±{EL_TOLERANCE_DEG}°
-        elevation.
-        {g.uncertaintyDeg !== null && (
-          <>
-            {" "}
-            Measurement uncertainty <span className="num">±{g.uncertaintyDeg.toFixed(1)}°</span>.
-          </>
-        )}
+        {t("Needle: where the dish faces now. Dot: target. Good within ±{{az}}° direction and ±{{el}}° elevation.", {
+          az: AZ_TOLERANCE_DEG,
+          el: EL_TOLERANCE_DEG,
+        })}
+        {g.uncertaintyDeg !== null &&
+          ` ${t("Measurement uncertainty ±{{deg}}°.", { deg: fmtNum(g.uncertaintyDeg, 1, true) })}`}
       </p>
       {onStartGuided && (
         <Button size="sm" onClick={onStartGuided} className="self-start">
-          <Footprints aria-hidden /> Start guided alignment
+          <Footprints aria-hidden /> {t("Start guided alignment")}
         </Button>
       )}
     </div>

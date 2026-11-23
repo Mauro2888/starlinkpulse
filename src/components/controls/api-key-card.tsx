@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useRef, useState, type FormEvent } from "react";
 import { CircleCheck, KeyRound, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ interface Props {
 
 /** Write-only key entry: the stored key is never read back or displayed. */
 export function ApiKeyCard({ hasKey, error, onSave, onDelete }: Props) {
+  const { t } = useTranslation();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -47,25 +49,25 @@ export function ApiKeyCard({ hasKey, error, onSave, onDelete }: Props) {
   };
 
   return (
-    <Section title="Anthropic API key" id="api-key">
+    <Section title={t("Anthropic API key")} id="api-key">
       <div className="flex flex-col gap-3">
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Used only when you ask Claude to explain a diagnosis. Stored in your system keychain, never shown again.
+          {t("Used only when you ask Claude to explain a diagnosis. Stored in your system keychain, never shown again.")}
         </p>
 
-        {hasKey === null && !error && <p className="text-sm text-muted-foreground">Checking keychain…</p>}
+        {hasKey === null && !error && <p className="text-sm text-muted-foreground">{t("Checking keychain…")}</p>}
         {error && <p className="text-sm text-critical">{error}</p>}
 
         {hasKey && !editing && (
           <div className="flex flex-wrap items-center gap-2">
             <span className="mr-auto flex items-center gap-2 text-sm" role="status">
-              <CircleCheck className="size-4 text-good" aria-hidden /> Key saved
+              <CircleCheck className="size-4 text-good" aria-hidden /> {t("Key saved")}
             </span>
             <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
-              Replace
+              {t("Replace")}
             </Button>
             <Button size="sm" variant="destructive" onClick={() => setConfirmDelete(true)}>
-              Delete
+              {t("Delete")}
             </Button>
           </div>
         )}
@@ -73,7 +75,7 @@ export function ApiKeyCard({ hasKey, error, onSave, onDelete }: Props) {
         {showForm && (
           <form onSubmit={submit} className="flex flex-col gap-1.5">
             <Label htmlFor="api-key-input" className="text-xs">
-              {hasKey ? "New API key" : "API key"}
+              {hasKey ? t("New API key") : t("API key")}
             </Label>
             <div className="flex gap-2">
               <Input
@@ -89,11 +91,11 @@ export function ApiKeyCard({ hasKey, error, onSave, onDelete }: Props) {
               />
               <Button type="submit" size="default" disabled={!value.trim() || busy}>
                 {busy ? <Loader2 className="animate-spin" aria-hidden /> : <KeyRound aria-hidden />}
-                Save
+                {t("Save")}
               </Button>
               {editing && (
                 <Button type="button" variant="ghost" onClick={() => { setEditing(false); setValue(""); }}>
-                  Cancel
+                  {t("Cancel")}
                 </Button>
               )}
             </div>
@@ -113,18 +115,18 @@ export function ApiKeyCard({ hasKey, error, onSave, onDelete }: Props) {
           }}
         >
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete the API key?</AlertDialogTitle>
+            <AlertDialogTitle>{t("Delete the API key?")}</AlertDialogTitle>
             <AlertDialogDescription>
-              The key is removed from your keychain. Claude explanations stop working until you add a key again. Diagnose keeps working.
+              {t("The key is removed from your keychain. Claude explanations stop working until you add a key again. Diagnose keeps working.")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
             <AlertDialogAction variant="destructive" onClick={() => {
                 deleted.current = true;
                 void onDelete().catch(() => undefined);
               }}>
-              Delete key
+              {t("Delete key")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

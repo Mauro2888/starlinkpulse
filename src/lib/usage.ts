@@ -1,15 +1,15 @@
 import type { DataUsage, UptimeWindow } from "@/types/models";
-import { EM_DASH, isNum } from "@/lib/format";
+import { EM_DASH, fmtNum, isNum } from "@/lib/format";
 
 const GB = 1e9;
 
 /** Decimal units, as ISPs use: "812 MB", "14.2 GB", "1.31 TB". */
 export function formatBytes(bytes: number | null | undefined): string {
   if (!isNum(bytes) || bytes < 0) return EM_DASH;
-  if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(2)} TB`;
-  if (bytes >= GB) return `${(bytes / GB).toFixed(bytes >= 100 * GB ? 0 : 1)} GB`;
-  if (bytes >= 1e6) return `${Math.round(bytes / 1e6)} MB`;
-  if (bytes >= 1e3) return `${Math.round(bytes / 1e3)} KB`;
+  if (bytes >= 1e12) return `${fmtNum(bytes / 1e12, 2, true)} TB`;
+  if (bytes >= GB) return `${fmtNum(bytes / GB, bytes >= 100 * GB ? 0 : 1, true)} GB`;
+  if (bytes >= 1e6) return `${fmtNum(Math.round(bytes / 1e6), 0)} MB`;
+  if (bytes >= 1e3) return `${fmtNum(Math.round(bytes / 1e3), 0)} KB`;
   return `${Math.round(bytes)} B`;
 }
 
@@ -52,7 +52,7 @@ export function formatUptime(w: Pick<UptimeWindow, "uptimePct">): string {
   if (!isNum(w.uptimePct)) return EM_DASH;
   const p = Math.min(100, Math.max(0, w.uptimePct));
   if (p >= 99.995) return "100 %";
-  return `${p >= 99 ? p.toFixed(2) : p.toFixed(1)} %`;
+  return `${p >= 99 ? fmtNum(p, 2, true) : fmtNum(p, 1, true)} %`;
 }
 
 /** Start of the billing cycle containing `now` for a reset day 1-28 (local time). */

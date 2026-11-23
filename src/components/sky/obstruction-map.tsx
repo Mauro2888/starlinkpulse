@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef } from "react";
 import type { ObstructionMap } from "@/types/models";
 import { cellIndex, cellToSky, summarizeObstructionMap, type MapSummary } from "@/lib/sky";
 import { formatPercent, isNum } from "@/lib/format";
+import { useTranslation } from "react-i18next";
+import { tr } from "@/i18n";
 import { snrColor, type Rgba } from "@/components/sky/sky-colors";
 import { DomeView } from "@/components/sky/dome-view";
 
@@ -15,13 +17,19 @@ export function isEarthFrame(frame: string | null | undefined): boolean {
 }
 
 export function describeMap(s: MapSummary, earthFrame = true): string {
-  const parts = [`${formatPercent(s.coverage, 0)} of the sky has data`];
+  const parts = [tr("{{pct}} of the sky has data", { pct: formatPercent(s.coverage, 0) })];
   if (s.obstructedFraction !== null) {
-    parts.push(`${formatPercent(s.obstructedFraction)} of it is obstructed`);
+    parts.push(tr("{{pct}} of it is obstructed", { pct: formatPercent(s.obstructedFraction) }));
   }
   if (earthFrame && s.worstDirection && s.obstructedFraction && s.obstructedFraction > 0.005) {
-    const elev = isNum(s.worstElevationDeg) ? `, about ${Math.round(s.worstElevationDeg)}° above the horizon` : "";
-    parts.push(`mostly towards the ${s.worstDirection}${elev}`);
+    parts.push(
+      isNum(s.worstElevationDeg)
+        ? tr("mostly towards the {{direction}}, about {{deg}}° above the horizon", {
+            direction: s.worstDirection,
+            deg: Math.round(s.worstElevationDeg),
+          })
+        : tr("mostly towards the {{direction}}", { direction: s.worstDirection }),
+    );
   }
   return parts.join(", ") + ".";
 }
@@ -38,6 +46,7 @@ export function ObstructionMapView({
   /** No idle animation in 3D (reduced motion). */
   still?: boolean;
 }) {
+  const { t } = useTranslation();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const summary = useMemo(() => summarizeObstructionMap(map), [map]);
   const maxTheta = isNum(map.maxThetaDeg) ? map.maxThetaDeg : 80;
@@ -70,7 +79,7 @@ export function ObstructionMapView({
       {mode === "3d" ? (
         <DomeView map={map} earthFrame={earth} label={label} still={still} />
       ) : (
-      <div className="relative aspect-square w-full max-w-[17rem]" role="img" aria-label={`Obstruction map. ${label}`}>
+      <div className="relative aspect-square w-full max-w-[17rem] dash3:max-w-[22rem]" role="img" aria-label={`${t("Obstruction map.")} ${label}`}>
         <div className="absolute inset-[7%] rounded-full bg-muted/40 ring-1 ring-border" aria-hidden />
         <canvas
           ref={canvasRef}
@@ -98,9 +107,9 @@ export function ObstructionMapView({
             ["E", 104, 51.3],
             ["S", 50, 106.5],
             ["W", -4, 51.3],
-          ].map(([t, x, y]) => (
-            <text key={t} x={x} y={y} fontSize={4.2} fontWeight={600} textAnchor="middle" fill="var(--foreground)" fillOpacity={0.85}>
-              {t}
+          ].map(([dir, x, y]) => (
+            <text key={dir} x={x} y={y} fontSize={4.2} fontWeight={600} textAnchor="middle" fill="var(--foreground)" fillOpacity={0.85}>
+              {t(dir as string)}
             </text>
           ))}
         </svg>
@@ -111,7 +120,7 @@ export function ObstructionMapView({
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[0.6875rem] text-muted-foreground">
           <span className="flex items-center gap-1.5">
             <span aria-hidden className="size-2.5 rounded-full" style={{ background: css(LUT[100]) }} />
-            Clear
+            {t("Clear")}
           </span>
           <span className="flex items-center gap-1.5">
             <span
@@ -119,19 +128,21 @@ export function ObstructionMapView({
               className="h-2 w-12 rounded-full"
               style={{ background: `linear-gradient(to right, ${css(LUT[65])}, ${css(LUT[30])}, ${css(LUT[0])})` }}
             />
-            Partly → fully obstructed
+            {t("Partly → fully obstructed")}
           </span>
           <span className="flex items-center gap-1.5">
             <span aria-hidden className="size-2.5 rounded-full bg-muted/40 ring-1 ring-border" />
-            No data yet
+            {t("No data yet")}
           </span>
         </div>
         <p className="text-[0.6875rem] text-muted-foreground">
           {mode === "3d"
-            ? `3D view of the sky above the dish${earth ? "" : " (dish-relative orientation)"}. Drag or use the arrow keys to rotate; the solid ring is the horizon, dashed rings are 30° and 60° up.`
+            ? earth
+              ? t("3D view of the sky above the dish. Drag or use the arrow keys to rotate; the solid ring is the horizon, dashed rings are 30° and 60° up.")
+              : t("3D view of the sky above the dish (dish-relative orientation). Drag or use the arrow keys to rotate; the solid ring is the horizon, dashed rings are 30° and 60° up.")
             : earth
-            ? "Top-down view: north up, east right, centre straight up. Rings show elevation above the horizon."
-            : "Dish-relative orientation: this firmware reports the map relative to the dish, not to compass directions. Centre is straight up; rings show elevation above the horizon."}
+              ? t("Top-down view: north up, east right, centre straight up. Rings show elevation above the horizon.")
+              : t("Dish-relative orientation: this firmware reports the map relative to the dish, not to compass directions. Centre is straight up; rings show elevation above the horizon.")}
         </p>
       </figcaption>
     </figure>

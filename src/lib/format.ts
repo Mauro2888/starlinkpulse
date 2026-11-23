@@ -3,6 +3,54 @@
 
 export const EM_DASH = "—";
 
+// ---- Locale -----------------------------------------------------------------
+// Set by the i18n layer (src/i18n). Numbers use Intl with this locale, so Italian
+// gets comma decimals; times are always 24 h.
+
+export type FormatLocale = "en" | "it";
+let LOCALE: FormatLocale = "en";
+
+const WORDS: Record<FormatLocale, { day: string; now: string; ago: (x: string) => string }> = {
+  en: { day: "d", now: "just now", ago: (x) => `${x} ago` },
+  it: { day: "g", now: "adesso", ago: (x) => `${x} fa` },
+};
+
+export function setFormatLocale(l: FormatLocale): void {
+  LOCALE = l;
+}
+
+export function getFormatLocale(): FormatLocale {
+  return LOCALE;
+}
+
+const nfCache = new Map<string, Intl.NumberFormat>();
+
+/** Locale-aware number with at most `digits` decimals (trailing zeros dropped unless `fixed`). */
+export function fmtNum(n: number, digits = 1, fixed = false): string {
+  const key = `${LOCALE}|${digits}|${fixed}`;
+  let nf = nfCache.get(key);
+  if (!nf) {
+    nf = new Intl.NumberFormat(LOCALE, {
+      maximumFractionDigits: digits,
+      minimumFractionDigits: fixed ? digits : 0,
+    });
+    nfCache.set(key, nf);
+  }
+  return nf.format(n);
+}
+
+/** Locale date/time string, e.g. "22 Nov 2026, 18:03" (always 24 h). */
+export function formatDateTime(
+  ms: number,
+  opts: Intl.DateTimeFormatOptions = { dateStyle: "medium", timeStyle: "short" },
+): string {
+  return new Date(ms).toLocaleString(LOCALE, { hourCycle: "h23", ...opts });
+}
+
+export function formatDate(ms: number, opts: Intl.DateTimeFormatOptions): string {
+  return new Date(ms).toLocaleDateString(LOCALE, opts);
+}
+
 export function isNum(v: number | null | undefined): v is number {
   return typeof v === "number" && Number.isFinite(v);
 }
@@ -75,7 +123,7 @@ export function formatDuration(seconds: number | null | undefined): string {
   const h = Math.floor(m / 60);
   if (h < 24) return `${h} h ${String(m % 60).padStart(2, "0")} min`;
   const d = Math.floor(h / 24);
-  return `${d} d ${h % 24} h`;
+  return `${d} ${WORDS[LOCALE].day} ${h % 24} h`;
 }
 
 /** Duration from milliseconds, with sub-second precision for short events. */
@@ -91,7 +139,7 @@ export function formatClock(ms: number | null | undefined, withDay = false): str
   const d = new Date(ms);
   const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   if (!withDay) return hm;
-  const day = d.toLocaleDateString(undefined, { weekday: "short" });
+  const day = d.toLocaleDateString(LOCALE, { weekday: "short" });
   return `${day} ${hm}`;
 }
 
@@ -99,8 +147,8 @@ export function formatClock(ms: number | null | undefined, withDay = false): str
 export function formatAgo(ms: number | null | undefined, now = Date.now()): string {
   if (!isNum(ms)) return EM_DASH;
   const diff = Math.max(0, (now - ms) / 1000);
-  if (diff < 5) return "just now";
-  return `${formatDuration(diff)} ago`;
+  if (diff < 5) return WORDS[LOCALE].now;
+  return WORDS[LOCALE].ago(formatDuration(diff));
 }
 
 /** Turns "POLICY_LIMIT" / "thermalThrottle" into "Policy limit" / "Thermal throttle". */
@@ -115,8 +163,7 @@ export function humanizeEnum(raw: string | null | undefined): string {
 }
 
 function trim(n: number, digits: number): string {
-  const fixed = n.toFixed(digits);
-  return digits > 0 ? fixed.replace(/\.?0+$/, "") : fixed;
+  return fmtNum(n, digits);
 }
 
 function join(p: ValueParts): string {

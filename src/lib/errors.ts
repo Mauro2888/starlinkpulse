@@ -1,4 +1,5 @@
 import type { CommandError, CommandErrorKind } from "@/types/models";
+import { tr as t } from "@/i18n";
 
 const KINDS: readonly CommandErrorKind[] = [
   "offline",
@@ -48,7 +49,7 @@ export function normalizeError(err: unknown): ApiError {
         // fall through: not JSON
       }
     }
-    return new ApiError("internal", trimmed || "Unknown error");
+    return new ApiError("internal", trimmed || t("Unknown error"));
   }
 
   if (err && typeof err === "object") {
@@ -63,12 +64,12 @@ export function normalizeError(err: unknown): ApiError {
       return new ApiError("internal", message ?? obj.kind);
     }
     if (err instanceof Error) {
-      return new ApiError(guessKind(err.message), err.message || "Unknown error");
+      return new ApiError(guessKind(err.message), err.message || t("Unknown error"));
     }
     if (message) return new ApiError(guessKind(message), message);
   }
 
-  return new ApiError("internal", "Unknown error");
+  return new ApiError("internal", t("Unknown error"));
 }
 
 function guessKind(message: string): CommandErrorKind {
@@ -78,33 +79,33 @@ function guessKind(message: string): CommandErrorKind {
 export function defaultMessage(kind: CommandErrorKind): string {
   switch (kind) {
     case "offline":
-      return "The dish is not reachable.";
+      return t("The dish is not reachable.");
     case "unsupported":
-      return "This dish does not support that action.";
+      return t("This dish does not support that action.");
     case "read_only":
-      return "Read-only mode is on.";
+      return t("Read-only mode is on.");
     case "timeout":
-      return "The dish did not answer in time.";
+      return t("The dish did not answer in time.");
     case "invalid_input":
-      return "Some values are not valid.";
+      return t("Some values are not valid.");
     case "keyring":
-      return "The system keychain is not available.";
+      return t("The system keychain is not available.");
     case "internal":
-      return "Something went wrong.";
+      return t("Something went wrong.");
     case "no_api_key":
-      return "No Anthropic API key is saved.";
+      return t("No Anthropic API key is saved.");
     case "ai_auth":
-      return "Anthropic did not accept the API key.";
+      return t("Anthropic did not accept the API key.");
     case "ai_rate_limit":
-      return "Anthropic is rate-limiting this API key.";
+      return t("Anthropic is rate-limiting this API key.");
     case "ai_unavailable":
-      return "The Anthropic API is unavailable right now.";
+      return t("The Anthropic API is unavailable right now.");
     case "ai_refused":
-      return "Claude declined to analyze this data.";
+      return t("Claude declined to analyze this data.");
     case "ai_invalid_response":
-      return "Claude's reply could not be read.";
+      return t("Claude's reply could not be read.");
     case "insufficient_data":
-      return "Not enough history to analyze yet.";
+      return t("Not enough history to analyze yet.");
   }
 }
 
@@ -112,32 +113,32 @@ export function defaultMessage(kind: CommandErrorKind): string {
 export function errorTitle(kind: CommandErrorKind): string {
   switch (kind) {
     case "offline":
-      return "Dish offline";
+      return t("Dish offline");
     case "unsupported":
-      return "Not supported";
+      return t("Not supported");
     case "read_only":
-      return "Read-only mode";
+      return t("Read-only mode");
     case "timeout":
-      return "Timed out";
+      return t("Timed out");
     case "invalid_input":
-      return "Invalid settings";
+      return t("Invalid settings");
     case "keyring":
-      return "Keychain error";
+      return t("Keychain error");
     case "internal":
-      return "Error";
+      return t("Error");
     case "no_api_key":
-      return "No API key";
+      return t("No API key");
     case "ai_auth":
-      return "API key rejected";
+      return t("API key rejected");
     case "ai_rate_limit":
-      return "Rate limited";
+      return t("Rate limited");
     case "ai_unavailable":
-      return "Claude unavailable";
+      return t("Claude unavailable");
     case "ai_refused":
-      return "Request declined";
+      return t("Request declined");
     case "ai_invalid_response":
-      return "Unreadable reply";
+      return t("Unreadable reply");
     case "insufficient_data":
-      return "Not enough data";
+      return t("Not enough data");
   }
 }

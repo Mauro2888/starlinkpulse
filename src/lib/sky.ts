@@ -9,7 +9,9 @@
 // need to change.
 
 import type { AlignmentStats, ObstructionMap } from "@/types/models";
-import { isNum } from "@/lib/format";
+import { fmtNum, isNum } from "@/lib/format";
+import { tr as t } from "@/i18n";
+import { tk } from "@/i18n/keys";
 
 export const DEFAULT_MAX_THETA_DEG = 80;
 /** SNR below this counts as an obstructed cell in the summary. */
@@ -68,16 +70,16 @@ export function cellIndex(row: number, col: number, cols: number): number {
   return row * cols + col;
 }
 
-const POINTS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"] as const;
+const POINTS = [tk("N"), tk("NE"), tk("E"), tk("SE"), tk("S"), tk("SW"), tk("W"), tk("NW")] as const;
 const POINT_NAMES: Record<(typeof POINTS)[number], string> = {
-  N: "north",
-  NE: "north-east",
-  E: "east",
-  SE: "south-east",
-  S: "south",
-  SW: "south-west",
-  W: "west",
-  NW: "north-west",
+  N: tk("north"),
+  NE: tk("north-east"),
+  E: tk("east"),
+  SE: tk("south-east"),
+  S: tk("south"),
+  SW: tk("south-west"),
+  W: tk("west"),
+  NW: tk("north-west"),
 };
 
 export function compassPoint(azimuthDeg: number): (typeof POINTS)[number] {
@@ -85,7 +87,7 @@ export function compassPoint(azimuthDeg: number): (typeof POINTS)[number] {
 }
 
 export function compassName(azimuthDeg: number): string {
-  return POINT_NAMES[compassPoint(azimuthDeg)];
+  return t(POINT_NAMES[compassPoint(azimuthDeg)]);
 }
 
 export interface MapSummary {
@@ -127,7 +129,7 @@ export function summarizeObstructionMap(map: ObstructionMap): MapSummary {
     skyCells,
     coverage: skyCells ? measured / skyCells : 0,
     obstructedFraction: measured ? obstructed / measured : null,
-    worstDirection: worst >= 0 ? POINT_NAMES[POINTS[worst]] : null,
+    worstDirection: worst >= 0 ? t(POINT_NAMES[POINTS[worst]]) : null,
     worstElevationDeg: obstructed ? elevSum / obstructed : null,
   };
 }
@@ -158,7 +160,7 @@ export interface AlignmentGuidance {
 
 function deg(n: number): string {
   const a = Math.abs(n);
-  return `${a >= 10 ? Math.round(a) : Math.round(a * 10) / 10}°`;
+  return `${a >= 10 ? fmtNum(Math.round(a), 0) : fmtNum(a, 1)}°`;
 }
 
 /** Plain-language guidance; null when the dish doesn't report enough alignment data. */
@@ -171,8 +173,18 @@ export function alignmentGuidance(a: AlignmentStats): AlignmentGuidance | null {
     delta: dAz,
     ok: azOk,
     text: azOk
-      ? "Direction is good"
-      : `Rotate ${deg(dAz)} ${dAz > 0 ? "clockwise" : "counter-clockwise"}, seen from above, to face ${Math.round(target)}° ${compassPoint(target)}`,
+      ? t("Direction is good")
+      : dAz > 0
+        ? t("Rotate {{deg}} clockwise, seen from above, to face {{target}}° {{point}}", {
+            deg: deg(dAz),
+            target: Math.round(target),
+            point: t(compassPoint(target)),
+          })
+        : t("Rotate {{deg}} counter-clockwise, seen from above, to face {{target}}° {{point}}", {
+            deg: deg(dAz),
+            target: Math.round(target),
+            point: t(compassPoint(target)),
+          }),
   };
 
   let elevation: AxisGuidance | null = null;
@@ -182,7 +194,11 @@ export function alignmentGuidance(a: AlignmentStats): AlignmentGuidance | null {
     elevation = {
       delta: dEl,
       ok: elOk,
-      text: elOk ? "Tilt is good" : `Tilt ${deg(dEl)} ${dEl > 0 ? "up" : "down"}`,
+      text: elOk
+        ? t("Tilt is good")
+        : dEl > 0
+          ? t("Tilt {{deg}} up", { deg: deg(dEl) })
+          : t("Tilt {{deg}} down", { deg: deg(dEl) }),
     };
   }
 

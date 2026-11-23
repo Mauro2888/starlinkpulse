@@ -2,7 +2,16 @@ import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { PulseContext, type PulseState } from "@/state/pulse-context";
 import { api } from "@/lib/api";
 import { normalizeError, type ApiError } from "@/lib/errors";
-import type { DataUsage, DishEvent, HistoryPoint, ObstructionMap, UptimeStats } from "@/types/models";
+import type {
+  DailyEnergy,
+  DataUsage,
+  DishEvent,
+  HistoryPoint,
+  LocationStats,
+  ObstructionMap,
+  TimeOfDayStats,
+  UptimeStats,
+} from "@/types/models";
 
 function usePulse(): PulseState {
   const ctx = useContext(PulseContext);
@@ -119,6 +128,30 @@ export function useDataUsage(days = 31): AsyncResource<DataUsage> {
   const { settings } = usePulse();
   const plan = `${settings?.dataCapGb ?? "none"}|${settings?.billingCycleDay ?? 1}`;
   return useAsyncResource(() => api.getDataUsage(days), `d${days}|${source}|${plan}`, version, 300_000);
+}
+
+/** Per-location stats; refetches when the active location changes. */
+export function useLocationStats(): AsyncResource<LocationStats[]> {
+  const [source, version] = useSourceKey();
+  const { settings } = usePulse();
+  return useAsyncResource(
+    () => api.getLocationStats(),
+    `loc|${source}|${settings?.activeLocation ?? ""}`,
+    version,
+    300_000,
+  );
+}
+
+/** Weekday × hour aggregates for the last `days` (7–90). */
+export function useTimeOfDay(days: number): AsyncResource<TimeOfDayStats> {
+  const [source, version] = useSourceKey();
+  return useAsyncResource(() => api.getTimeOfDayStats(days), `tod${days}|${source}`, version, 600_000);
+}
+
+/** Daily energy (Wh, avg/peak W), newest last. */
+export function useEnergy(days: number): AsyncResource<DailyEnergy[]> {
+  const [source, version] = useSourceKey();
+  return useAsyncResource(() => api.getEnergy(days), `en${days}|${source}`, version, 600_000);
 }
 
 /** Write-only API key status. The key itself is never read back. */

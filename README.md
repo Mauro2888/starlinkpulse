@@ -8,6 +8,15 @@ StarlinkPulse is a small desktop app for macOS, Windows and Linux. It monitors y
 | ![Obstruction map and alignment helper](docs/screenshots/sky-tray.png) | ![History tab with uptime, data usage and charts](docs/screenshots/history-desktop.png) |
 | ![Diagnose report from the built-in rules](docs/screenshots/diagnose-tray.png) | ![Rotatable 3D sky dome](docs/screenshots/sky-3d.png) |
 
+On a large screen the dashboard spreads into 3–4 columns:
+
+![Live dashboard at 1440 px](docs/screenshots/live-1440.png)
+![History at 1920 px with best times and location comparison](docs/screenshots/history-1920.png)
+
+The interface is available in English and Italian:
+
+![Live dashboard in Italian](docs/screenshots/live-1440-it.png)
+
 <sub>Screenshots taken in demo mode with simulated data.</sub>
 
 ## Features
@@ -18,6 +27,11 @@ StarlinkPulse is a small desktop app for macOS, Windows and Linux. It monitors y
 - **Alignment helper** for dishes without motors: "Rotate 11° clockwise, seen from above", "Tilt 2° up", with a tolerance indicator.
 - **History**: 1 h / 6 h / 24 h / 48 h charts for latency (average and p95), packet loss, throughput and power, with outage markers and an outage log.
 - **Uptime** over 24 hours / 7 days / 30 days and **estimated data usage** per billing cycle, with an optional data cap.
+- **Ready for**: live verdicts for video calls, gaming and streaming, plus jitter.
+- **Best times**: a weekday × hour heatmap (p95 latency, packet loss or download over 7/30/90 days) with a summary like "Best: weekdays 06–10 · worst: Sun 20–23".
+- **Locations**: tag where the dish is (home, campsite, boat…) and compare outages, obstruction, latency and loss per place.
+- **Energy**: Wh per day, average and peak power, and battery runtime for off-grid setups (when the dish reports power).
+- **English and Italian**, following your system language or chosen in Settings.
 - **Desktop notifications** for outages, new obstructions, overheating, plan speed limits, reboots, software updates and the data cap, each switchable, plus quiet hours.
 - **Diagnose**: built-in rules turn the last 24 hours into a report that separates obstructions, alignment, the Starlink network (including plan limits), outages, Wi-Fi, overheating and hardware, each with a checklist. It runs offline, needs no key and costs nothing.
 - **Explain with AI** (optional, off by default): have Claude (your own API key) or a local model (Ollama, LM Studio, llama.cpp) explain and prioritize the findings.

@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import { tk } from "@/i18n/keys";
 import { cn } from "@/lib/utils";
 import { EM_DASH, type ValueParts } from "@/lib/format";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
-export const NOT_REPORTED = "Not reported by this dish or firmware";
+export const NOT_REPORTED = tk("Not reported by this dish or firmware");
 
 /** Renders a value + unit. A missing value becomes a focusable dash with a tooltip. */
 export function Reading({
@@ -17,6 +19,7 @@ export function Reading({
   missingHint?: string;
   className?: string;
 }) {
+  const { t } = useTranslation();
   const valueCls = {
     sm: "text-sm",
     md: "text-xl",
@@ -33,10 +36,12 @@ export function Reading({
             className={cn("num cursor-help rounded-sm text-muted-foreground focus-visible:outline-2", valueCls, className)}
           >
             <span aria-hidden>{EM_DASH}</span>
-            <span className="sr-only">No data. {missingHint}</span>
+            <span className="sr-only">
+              {t("No data.")} {t(missingHint)}
+            </span>
           </span>
         </TooltipTrigger>
-        <TooltipContent>{missingHint}</TooltipContent>
+        <TooltipContent>{t(missingHint)}</TooltipContent>
       </Tooltip>
     );
   }

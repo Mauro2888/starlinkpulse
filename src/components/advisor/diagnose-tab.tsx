@@ -5,7 +5,8 @@ import { api } from "@/lib/api";
 import { normalizeError, type ApiError } from "@/lib/errors";
 import { advisorErrorCopy, aiDestination, isInsufficientHistory, privacyNote, SOURCE_LABELS, type AiDestination } from "@/lib/advisor";
 import { cn } from "@/lib/utils";
-import { formatDurationMs, formatMs, formatPercent } from "@/lib/format";
+import { useTranslation } from "react-i18next";
+import { formatDateTime, formatDurationMs, formatMs, formatPercent } from "@/lib/format";
 import { useNow } from "@/hooks/use-now";
 import { useApiKey, useSettings } from "@/hooks/use-pulse";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ function formatElapsed(ms: number): string {
 }
 
 export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings, onOpenSkyView }: Props) {
+  const { t } = useTranslation();
   const provider: AiProvider = ai?.aiProvider ?? "off";
   const destination = ai ? aiDestination(ai) : null;
   const aiOn = provider !== "off";
@@ -160,7 +162,7 @@ export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings, onOpen
     runId.current++;
     setAiPhase("idle");
     focus(aiRef);
-    setNotice("Stopped waiting. If the explanation still finishes, it will appear here next time you open this tab.");
+    setNotice(t("Stopped waiting. If the explanation still finishes, it will appear here next time you open this tab."));
   };
 
   const aiBusy = aiPhase === "preparing" || aiPhase === "explaining";
@@ -168,8 +170,8 @@ export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings, onOpen
   let main;
   if (diagnosing && !rules) {
     main = (
-      <StatePanel icon={<Loader2 className="animate-spin motion-reduce:animate-none" />} title="Checking the last 24 hours">
-        Running the built-in checks on this computer.
+      <StatePanel icon={<Loader2 className="animate-spin motion-reduce:animate-none" />} title={t("Checking the last 24 hours")}>
+        {t("Running the built-in checks on this computer.")}
       </StatePanel>
     );
   } else if (rulesLoading && !rules) {
@@ -178,14 +180,14 @@ export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings, onOpen
     main = (
       <StatePanel
         icon={<History />}
-        title="Not enough history yet"
+        title={t("Not enough history yet")}
         action={
           <Button size="sm" variant="outline" onClick={diagnose}>
-            <RefreshCw aria-hidden /> Check again
+            <RefreshCw aria-hidden /> {t("Check again")}
           </Button>
         }
       >
-        Diagnose needs at least an hour of measurements to find patterns. Keep StarlinkPulse running, then try again.
+        {t("Diagnose needs at least an hour of measurements to find patterns. Keep StarlinkPulse running, then try again.")}
       </StatePanel>
     );
   } else if (rulesError) {
@@ -206,15 +208,14 @@ export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings, onOpen
     main = (
       <StatePanel
         icon={<ListChecks />}
-        title="Find out what's slowing you down"
+        title={t("Find out what's slowing you down")}
         action={
           <Button size="sm" onClick={diagnose}>
-            <ListChecks aria-hidden /> Run diagnostics
+            <ListChecks aria-hidden /> {t("Run diagnostics")}
           </Button>
         }
       >
-        Built-in checks review obstructions, alignment, plan limits, outages, Wi-Fi and hardware. They run on this
-        computer, for free.
+        {t("Built-in checks review obstructions, alignment, plan limits, outages, Wi-Fi and hardware. They run on this computer, for free.")}
       </StatePanel>
     );
   }
@@ -222,33 +223,35 @@ export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings, onOpen
   const showAiSection = aiOn || aiReport !== null;
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-3">
+    <div className={cn("mx-auto flex w-full flex-col gap-3", showAiSection ? "max-w-2xl dash3:max-w-none" : "max-w-3xl")}>
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Button size="sm" variant={aiOn ? "outline" : "default"} onClick={diagnose} disabled={diagnosing}>
           {diagnosing ? <Loader2 className="animate-spin" aria-hidden /> : <ListChecks aria-hidden />}
-          Run diagnostics
+          {t("Run diagnostics")}
         </Button>
         {aiOn && (
           <Button size="sm" onClick={explain} disabled={aiBusy || (provider === "claude" && hasKey === null)}>
             {aiPhase === "preparing" ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}
-            Explain with AI
+            {t("Explain with AI")}
           </Button>
         )}
       </div>
       {!aiOn && ai && (
         <p className="text-right text-[0.6875rem] text-muted-foreground">
-          Want a plain-language explanation?{" "}
+          {t("Want a plain-language explanation?")}{" "}
           <button
             type="button"
             onClick={onOpenAiSettings}
             className="rounded-sm font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-2"
           >
-            Turn on AI explanations
+            {t("Turn on AI explanations")}
           </button>
         </p>
       )}
 
-      <div ref={bodyRef} tabIndex={-1} className="rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      {/* Rules report and AI explanation side by side from 1200 px. */}
+      <div className={cn("grid gap-3", showAiSection && "dash3:grid-cols-2 dash3:items-start")}>
+      <div ref={bodyRef} tabIndex={-1} className="min-w-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring">
         {main}
       </div>
 
@@ -257,10 +260,10 @@ export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings, onOpen
           ref={aiRef}
           tabIndex={-1}
           aria-labelledby="ai-explanation-title"
-          className="flex flex-col gap-2 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex min-w-0 flex-col gap-2 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <h2 id="ai-explanation-title" className="sr-only">
-            AI explanation
+            {t("AI explanation")}
           </h2>
           {notice && (
             <p role="status" className="rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
@@ -291,9 +294,9 @@ export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings, onOpen
                 <span className="flex min-w-0 items-center gap-2">
                   <Sparkles className="size-4 shrink-0 text-primary" aria-hidden />
                   <span className="min-w-0">
-                    <span className="block text-sm font-medium">AI explanation</span>
+                    <span className="block text-sm font-medium">{t("AI explanation")}</span>
                     <span className="block truncate text-[0.6875rem] text-muted-foreground">
-                      {SOURCE_LABELS[aiReport.source]} · {new Date(aiReport.generatedAtMs).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+                      {t(SOURCE_LABELS[aiReport.source])} · {formatDateTime(aiReport.generatedAtMs)}
                     </span>
                   </span>
                 </span>
@@ -313,12 +316,12 @@ export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings, onOpen
           ) : (
             <p className="rounded-xl px-1 text-xs text-muted-foreground">
               <Sparkles className="mr-1 inline size-3.5 align-[-2px] text-primary" aria-hidden />
-              Use <span className="font-medium text-foreground">Explain with AI</span> for a plain-language explanation of
-              these findings. You'll see exactly what is sent first.
+              {t("Use Explain with AI for a plain-language explanation of these findings. You'll see exactly what is sent first.")}
             </p>
           )}
         </section>
       )}
+      </div>
 
       <PreviewDialog
         payload={preview}
@@ -354,6 +357,7 @@ function ErrorPanel({
   onOpenAiSettings: () => void;
   onShowReport: () => void;
 }) {
+  const { t } = useTranslation();
   const c = advisorErrorCopy(error.kind, provider === "local" ? "local" : "claude");
   const isKey = error.kind === "no_api_key";
   const keyRelated = isKey || error.kind === "ai_auth" || error.kind === "keyring";
@@ -367,7 +371,7 @@ function ErrorPanel({
           {c.action === "settings" && (
             <Button size="sm" onClick={keyRelated ? onOpenApiKey : onOpenAiSettings}>
               {keyRelated ? <KeyRound aria-hidden /> : <Settings2 aria-hidden />}
-              {isKey ? "Add API key" : keyRelated ? "Open API key settings" : "Open AI settings"}
+              {isKey ? t("Add API key") : keyRelated ? t("Open API key settings") : t("Open AI settings")}
             </Button>
           )}
           {c.action === "retry" && (
@@ -377,36 +381,39 @@ function ErrorPanel({
           )}
           {hasReport && (
             <Button size="sm" variant="ghost" onClick={onShowReport}>
-              Show last report
+              {t("Show last report")}
             </Button>
           )}
         </div>
       }
     >
       {c.body}
-      {error.message && !isKey && <span className="mt-1.5 block opacity-80">Details: {error.message}</span>}
+      {error.message && !isKey && (
+        <span className="mt-1.5 block opacity-80">{t("Details: {{message}}", { message: error.message })}</span>
+      )}
     </StatePanel>
   );
 }
 
 function Explaining({ provider, startedAt, onStop }: { provider: AiProvider; startedAt: number; onStop: () => void }) {
+  const { t } = useTranslation();
   const now = useNow(1000);
   const local = provider === "local";
   return (
     <StatePanel
       icon={<Loader2 className="animate-spin motion-reduce:animate-none" />}
-      title={local ? "Your local model is reviewing the findings" : "Claude is reviewing the findings"}
+      title={local ? t("Your local model is reviewing the findings") : t("Claude is reviewing the findings")}
       action={
         <Button size="sm" variant="outline" onClick={onStop}>
-          Stop waiting
+          {t("Stop waiting")}
         </Button>
       }
     >
       {local
-        ? "This depends on your hardware and model size, and can take a few minutes."
-        : "This usually takes 10 to 60 seconds."}
+        ? t("This depends on your hardware and model size, and can take a few minutes.")
+        : t("This usually takes 10 to 60 seconds.")}
       <span className="mt-2 block">
-        Elapsed{" "}
+        {t("Elapsed")}{" "}
         <span className="num text-foreground" aria-live="off">
           {formatElapsed(now - startedAt)}
         </span>
@@ -428,7 +435,14 @@ export function PreviewDialog({
   onConfirm: () => void;
   onCloseAutoFocus?: (e: Event) => void;
 }) {
-  const d = destination ?? { name: "the AI provider", target: "the AI provider", leavesComputer: true, remoteLocal: false };
+  const { t } = useTranslation();
+  const d: AiDestination = destination ?? {
+    kind: "claude",
+    name: "Claude",
+    target: "Anthropic (api.anthropic.com)",
+    leavesComputer: true,
+    remoteLocal: false,
+  };
   return (
     <AlertDialog open={payload !== null} onOpenChange={(open) => !open && onCancel()}>
       <AlertDialogContent
@@ -438,16 +452,18 @@ export function PreviewDialog({
         {payload && (
           <>
             <AlertDialogHeader>
-              <AlertDialogTitle>Send this summary to {d.name}?</AlertDialogTitle>
+              <AlertDialogTitle>
+                {d.kind === "claude" ? t("Send this summary to Claude?") : t("Send this summary to your local model?")}
+              </AlertDialogTitle>
               <AlertDialogDescription>{privacyNote(d)}</AlertDialogDescription>
             </AlertDialogHeader>
             {payload.isSimulated && (
               <p role="alert" className="flex items-start gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs ring-1 ring-warning/40">
                 <FlaskConical className="mt-px size-3.5 shrink-0 text-warning" aria-hidden />
                 <span>
-                  <span className="font-medium">Simulated data.</span> These numbers come from demo mode, not your dish, so
-                  the explanation won't tell you anything about your connection.
-                  {d.name === "Claude" && " Analyzing it with Claude still costs money on your Anthropic account."}
+                  <span className="font-medium">{t("Simulated data.")}</span>{" "}
+                  {t("These numbers come from demo mode, not your dish, so the explanation won't tell you anything about your connection.")}
+                  {d.kind === "claude" && ` ${t("Analyzing it with Claude still costs money on your Anthropic account.")}`}
                 </span>
               </p>
             )}
@@ -455,41 +471,41 @@ export function PreviewDialog({
               <p role="alert" className="flex items-start gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs ring-1 ring-warning/40">
                 <TriangleAlert className="mt-px size-3.5 shrink-0 text-warning" aria-hidden />
                 <span>
-                  <span className="font-medium">This address is not this computer.</span> The data will travel over your
-                  network to <span className="num">{d.target}</span>.
+                  <span className="font-medium">{t("This address is not this computer.")}</span>{" "}
+                  {t("The data will travel over your network to {{target}}.", { target: d.target })}
                 </span>
               </p>
             )}
             <dl className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg bg-muted/50 px-3 py-2 text-xs">
-              <dt className="text-muted-foreground">Period</dt>
+              <dt className="text-muted-foreground">{t("Period")}</dt>
               <dd className="num text-right">{payload.windowHours} h</dd>
-              <dt className="text-muted-foreground">Avg latency</dt>
+              <dt className="text-muted-foreground">{t("Avg latency")}</dt>
               <dd className="num text-right">{formatMs(payload.latencyAvgMs)}</dd>
-              <dt className="text-muted-foreground">Avg packet loss</dt>
+              <dt className="text-muted-foreground">{t("Avg packet loss")}</dt>
               <dd className="num text-right">{formatPercent(payload.dropRateAvg, 2)}</dd>
-              <dt className="text-muted-foreground">Outages</dt>
+              <dt className="text-muted-foreground">{t("Outages")}</dt>
               <dd className="num text-right">
                 {payload.outageCount} ({formatDurationMs(payload.outageTotalS * 1000)})
               </dd>
-              <dt className="text-muted-foreground">Built-in findings</dt>
+              <dt className="text-muted-foreground">{t("Built-in findings")}</dt>
               <dd className="num text-right">{payload.ruleFindings.length}</dd>
             </dl>
             <details open className="group rounded-lg ring-1 ring-border">
               <summary className="flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium outline-none select-none focus-visible:ring-2 focus-visible:ring-ring">
                 <ShieldCheck className="size-3.5 text-good" aria-hidden />
-                Exact data to be sent (JSON)
+                {t("Exact data to be sent (JSON)")}
               </summary>
               <pre
                 tabIndex={0}
-                aria-label="Payload JSON"
+                aria-label={t("Payload JSON")}
                 className="num max-h-56 overflow-auto border-t border-border px-3 py-2 text-[0.6875rem] leading-relaxed text-muted-foreground"
               >
                 {JSON.stringify(payload, null, 2)}
               </pre>
             </details>
             <AlertDialogFooter>
-              <AlertDialogCancel>Don't send</AlertDialogCancel>
-              <AlertDialogAction onClick={onConfirm}>Send and analyze</AlertDialogAction>
+              <AlertDialogCancel>{t("Don't send")}</AlertDialogCancel>
+              <AlertDialogAction onClick={onConfirm}>{t("Send and analyze")}</AlertDialogAction>
             </AlertDialogFooter>
           </>
         )}

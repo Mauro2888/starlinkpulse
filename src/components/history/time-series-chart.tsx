@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Area,
   CartesianGrid,
@@ -55,6 +56,7 @@ export function TimeSeriesChart({
   summary,
   zeroBased = true,
 }: Props) {
+  const { t } = useTranslation();
   const span = toMs - fromMs;
   const withDay = span > 20 * 3_600_000;
   const minWidth = span / 240;
@@ -62,7 +64,7 @@ export function TimeSeriesChart({
   const reboots = useMemo(() => events.filter((e) => isRebootCause(e.cause)), [events]);
 
   return (
-    <figure className="flex min-w-0 flex-col gap-2" aria-label={`${title} chart. ${summary}`}>
+    <figure className="flex min-w-0 flex-col gap-2" aria-label={`${t("{{title}} chart.", { title })} ${summary}`}>
       <figcaption className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <span className="text-sm font-medium">
           {title} <span className="text-xs font-normal text-muted-foreground">{unit}</span>
@@ -170,6 +172,7 @@ export function TimeSeriesChart({
 }
 
 function Legend({ series, hasOutages, hasReboots }: { series: SeriesSpec[]; hasOutages: boolean; hasReboots: boolean }) {
+  const { t } = useTranslation();
   if (series.length < 2 && !hasOutages && !hasReboots) return null;
   return (
     <ul className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.6875rem] text-muted-foreground">
@@ -185,7 +188,7 @@ function Legend({ series, hasOutages, hasReboots }: { series: SeriesSpec[]; hasO
       {hasOutages && (
         <li className="flex items-center gap-1.5">
           <span aria-hidden className="h-2.5 w-2 rounded-[2px] bg-critical/40" />
-          Outage
+          {t("Outage")}
         </li>
       )}
       {hasReboots && (
@@ -193,7 +196,7 @@ function Legend({ series, hasOutages, hasReboots }: { series: SeriesSpec[]; hasO
           <svg width="6" height="10" aria-hidden>
             <line x1="3" x2="3" y1="0" y2="10" stroke="var(--foreground)" strokeOpacity="0.6" strokeDasharray="2 2" />
           </svg>
-          Reboot
+          {t("Reboot")}
         </li>
       )}
     </ul>

@@ -6,15 +6,18 @@ import type {
   AiReport,
   AlignmentModeEvent,
   ConnectionStatus,
+  DailyEnergy,
   DataUsage,
   DiagnosticSummary,
   DishCapabilities,
   DishEvent,
   HistoryPoint,
+  LocationStats,
   ObstructionMap,
   Settings,
   SnowMeltMode,
   TelemetrySnapshot,
+  TimeOfDayStats,
   UpdateInfo,
   UptimeStats,
 } from "@/types/models";
@@ -44,6 +47,11 @@ export interface CommandMap {
   check_for_update: { args: void; result: UpdateInfo };
   install_update: { args: void; result: null };
   open_releases_page: { args: void; result: null };
+  get_location_stats: { args: void; result: LocationStats[] };
+  rename_location: { args: { from: string; to: string }; result: null };
+  delete_location: { args: { name: string }; result: null };
+  get_time_of_day_stats: { args: { days: number }; result: TimeOfDayStats };
+  get_energy: { args: { days: number }; result: DailyEnergy[] };
   set_alignment_mode: { args: { enabled: boolean }; result: null };
   get_data_usage: { args: { days: number }; result: DataUsage };
   send_test_notification: { args: void; result: null };
@@ -151,6 +159,11 @@ export const api = {
   installUpdate: () => call("install_update").then(() => undefined),
   /** Opens the build's fixed GitHub Releases URL in the system browser. */
   openReleasesPage: () => call("open_releases_page").then(() => undefined),
+  getLocationStats: () => call("get_location_stats"),
+  renameLocation: (from: string, to: string) => call("rename_location", { from, to }).then(() => undefined),
+  deleteLocation: (name: string) => call("delete_location", { name }).then(() => undefined),
+  getTimeOfDayStats: (days: number) => call("get_time_of_day_stats", { days }),
+  getEnergy: (days: number) => call("get_energy", { days }),
   /** Fast (1 s) read-only polling for guided alignment; auto-off after 10 min. */
   setAlignmentMode: (enabled: boolean) => call("set_alignment_mode", { enabled }).then(() => undefined),
   getDataUsage: (days: number) => call("get_data_usage", { days }),

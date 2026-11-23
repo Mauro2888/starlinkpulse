@@ -49,6 +49,26 @@ cargo test
 - **Copy**: short, plain English. Error messages say what happened and how to fix it.
 - **Accessibility**: keyboard reachable, visible focus, labels on every control, never colour alone.
 
+## Translations
+
+The UI uses [react-i18next](https://react.i18next.com/). **Keys are the English source strings** ("gettext style"), so code stays readable:
+
+```tsx
+const { t } = useTranslation();
+<p>{t("No active alerts")}</p>
+<p>{t("Last reading {{ago}}.", { ago })}</p>
+<p>{t("{{count}} outages, {{duration}}", { count, duration })}</p> // plural: _one / _other keys
+```
+
+- Outside components use `tr("…")` from `@/i18n`; for constant label maps mark strings with `tk("…")` and translate at render time with `t(label)`.
+- Catalogs: `src/locales/en.json` (generated) and `src/locales/it.json` (hand-written).
+- After adding or changing strings run `npm run i18n:extract`. It updates `en.json` (plural keys get `_one`/`_other`; fix the English singular by hand) and lists keys missing from `it.json`.
+- `npm run i18n:check` (also covered by the tests) fails if the catalogs are out of sync or a translation drops a `{{placeholder}}`.
+- Don't build sentences from fragments: translate whole sentences with placeholders, because word order differs between languages.
+- Numbers, dates and units go through `src/lib/format.ts` (Intl with the active language: Italian uses comma decimals, times are always 24 h).
+- Texts that come from the backend (built-in rule reports, notifications, tray, error messages) are localized in Rust, not in the UI.
+- **Adding a language:** copy `it.json` to `xx.json`, translate the values, register it in `src/i18n/index.ts` (`resources`, `LANGUAGES`, `resolveLanguage`) and in the Settings language list, and add the backend catalog. Write natural phrasing rather than word-for-word translations.
+
 ## The contract rule
 
 The UI and the backend share one contract. When you change a command, event or shared type, update **all three in the same pull request**:

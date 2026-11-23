@@ -12,6 +12,8 @@ const nullSnapshot: TelemetrySnapshot = {
   downlinkBps: null,
   uplinkBps: 2_500_000,
   powerW: null,
+  jitterMs: null,
+  readiness: null,
   popPingLatencyMs: null,
   popPingDropRate: null,
   snrAboveNoiseFloor: null,

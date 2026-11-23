@@ -42,6 +42,7 @@ export function LiveTab() {
         now={now}
         pollIntervalS={settings?.livePollIntervalS ?? 3}
         mockMode={settings?.mockMode ?? null}
+        battery={settings?.battery ?? null}
         onStartGuidedAlignment={() => setAligning(true)}
         skySlot={
           capabilities?.hasObstructionMap ? (

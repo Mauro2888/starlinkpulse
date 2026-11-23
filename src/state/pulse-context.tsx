@@ -8,6 +8,7 @@ import type {
 import { api, events, type Unlisten } from "@/lib/api";
 import { normalizeError, type ApiError } from "@/lib/errors";
 import { appendSnapshot } from "@/lib/buffer";
+import { applyLanguage, resolveLanguage } from "@/i18n";
 
 export interface PulseState {
   connection: ConnectionStatus | null;
@@ -120,6 +121,12 @@ export function PulseProvider({ children }: { children: ReactNode }) {
       unlisteners.forEach((u) => u());
     };
   }, [acceptSnapshot, fetchSnapshot, refresh, applyCapabilities, clearLive]);
+
+  // UI language follows the saved setting ("system" = OS/browser language).
+  const languagePref = settings?.language;
+  useEffect(() => {
+    applyLanguage(resolveLanguage(languagePref));
+  }, [languagePref]);
 
   // Fallback polling: if no telemetry event arrived for two intervals, ask directly.
   const intervalS = settings?.livePollIntervalS ?? 3;

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { tr } from "@/i18n";
+import { useTranslation } from "react-i18next";
 import { api, isTauri } from "@/lib/api";
 import { historyToCsv } from "@/lib/history";
 import { isLinkUp } from "@/lib/dish";
@@ -31,29 +33,30 @@ async function runAction(a: DishAction): Promise<void> {
       case "reboot":
         await api.rebootDish();
         toastSuccess(
-          "Reboot sent",
-          "The dish will be offline for 1–2 minutes.",
+          tr("Reboot sent"),
+          tr("The dish will be offline for 1–2 minutes."),
         );
         break;
       case "stow":
         await api.stowDish();
-        toastSuccess("Stowing dish");
+        toastSuccess(tr("Stowing dish"));
         break;
       case "unstow":
         await api.unstowDish();
-        toastSuccess("Unstowing dish");
+        toastSuccess(tr("Unstowing dish"));
         break;
       case "snow_melt":
         await api.setSnowMelt(a.mode);
-        toastSuccess(`Snow melt set to ${SNOW_MELT_LABELS[a.mode]}`);
+        toastSuccess(tr("Snow melt set to {{mode}}", { mode: tr(SNOW_MELT_LABELS[a.mode]) }));
         break;
     }
   } catch (e) {
-    toastError(e, "Action failed");
+    toastError(e, tr("Action failed"));
   }
 }
 
 export function ControlsTab() {
+  useTranslation();
   const caps = useCapabilities();
   const connection = useConnection();
   const { settings, error, save } = useSettings();
@@ -66,7 +69,7 @@ export function ControlsTab() {
   };
 
   return (
-    <div className="grid gap-3 md:grid-cols-2 md:items-start">
+    <div className="grid gap-3 md:grid-cols-2 md:items-start dash3:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
       <div className="flex min-w-0 flex-col gap-3">
         <DishActions
           capabilities={caps}
@@ -82,18 +85,18 @@ export function ControlsTab() {
             onSave={async (k) => {
               try {
                 await key.save(k);
-                toastSuccess("API key saved");
+                toastSuccess(tr("API key saved"));
               } catch (e) {
-                toastError(e, "Could not save key");
+                toastError(e, tr("Could not save key"));
                 throw e;
               }
             }}
             onDelete={async () => {
               try {
                 await key.remove();
-                toastSuccess("API key deleted");
+                toastSuccess(tr("API key deleted"));
               } catch (e) {
-                toastError(e, "Could not delete key");
+                toastError(e, tr("Could not delete key"));
               }
             }}
           />
@@ -108,9 +111,9 @@ export function ControlsTab() {
             onSave={async (next) => {
               try {
                 await save(next);
-                toastSuccess("Settings saved");
+                toastSuccess(tr("Settings saved"));
               } catch (e) {
-                toastError(e, "Settings not saved");
+                toastError(e, tr("Settings not saved"));
               }
             }}
           />
@@ -118,7 +121,7 @@ export function ControlsTab() {
           <StatePanel
             tone="critical"
             icon={<AlertCircle />}
-            title="Settings unavailable"
+            title={tr("Settings unavailable")}
           >
             {error.message}
           </StatePanel>
@@ -148,6 +151,7 @@ function downloadInBrowser(
 }
 
 function ExportCard() {
+  useTranslation();
   const [busy, setBusy] = useState(false);
   const exportCsv = async () => {
     setBusy(true);
@@ -155,30 +159,30 @@ function ExportCard() {
       if (isTauri()) {
         // Native save dialog; null means the user cancelled, so say nothing.
         const path = await api.exportHistoryCsv(2880);
-        if (path) toastSuccess("History exported", `Saved to ${path}`);
+        if (path) toastSuccess(tr("History exported"), tr("Saved to {{path}}", { path }));
         return;
       }
       // Browser dev mode only: build the file client-side.
       const points = await api.getHistory(2880);
       if (points.length === 0) {
-        toast.info("No history to export yet", {
-          description: "History builds up while the app runs.",
+        toast.info(tr("No history to export yet"), {
+          description: tr("History builds up while the app runs."),
         });
         return;
       }
       downloadInBrowser(points);
-      toastSuccess("CSV downloaded", `${points.length} minutes of history.`);
+      toastSuccess(tr("CSV downloaded"), tr("{{count}} minutes of history.", { count: points.length }));
     } catch (e) {
-      toastError(e, "Export failed");
+      toastError(e, tr("Export failed"));
     } finally {
       setBusy(false);
     }
   };
   return (
-    <Section title="Data">
+    <Section title={tr("Data")}>
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground">
-          Per-minute history of the last 48 hours as CSV.
+          {tr("Per-minute history of the last 48 hours as CSV.")}
         </p>
         <Button size="sm" variant="outline" onClick={exportCsv} disabled={busy}>
           {busy ? (
@@ -186,7 +190,7 @@ function ExportCard() {
           ) : (
             <Download aria-hidden />
           )}
-          Export CSV
+          {tr("Export CSV")}
         </Button>
       </div>
     </Section>

@@ -1,3 +1,6 @@
+import { useTranslation } from "react-i18next";
+import { tr } from "@/i18n";
+import { tk } from "@/i18n/keys";
 import { useEffect, useState, type ReactNode } from "react";
 import { ArrowDownToLine, ArrowUpFromLine, Loader2, Lock, Power, Snowflake } from "lucide-react";
 import type { DishCapabilities, SnowMeltMode } from "@/types/models";
@@ -22,44 +25,44 @@ export type DishAction =
   | { type: "snow_melt"; mode: SnowMeltMode };
 
 export const SNOW_MELT_LABELS: Record<SnowMeltMode, string> = {
-  auto: "Automatic",
-  always_on: "Always on",
-  always_off: "Off",
+  auto: tk("Automatic"),
+  always_on: tk("Always on"),
+  always_off: tk("Off"),
 };
 
 function confirmCopy(a: DishAction): { title: string; body: string; cta: string; destructive: boolean } {
   switch (a.type) {
     case "reboot":
       return {
-        title: "Reboot the dish?",
-        body: "Your internet connection will drop for about 1 to 3 minutes while the dish restarts and finds satellites again.",
-        cta: "Reboot",
+        title: tr("Reboot the dish?"),
+        body: tr("Your internet connection will drop for about 1 to 3 minutes while the dish restarts and finds satellites again."),
+        cta: tr("Reboot"),
         destructive: true,
       };
     case "stow":
       return {
-        title: "Stow the dish?",
-        body: "The dish will tilt flat into its storage position. Internet stops until you unstow it.",
-        cta: "Stow",
+        title: tr("Stow the dish?"),
+        body: tr("The dish will tilt flat into its storage position. Internet stops until you unstow it."),
+        cta: tr("Stow"),
         destructive: true,
       };
     case "unstow":
       return {
-        title: "Unstow the dish?",
-        body: "The dish will move back to its working position and reconnect. This takes a minute or two.",
-        cta: "Unstow",
+        title: tr("Unstow the dish?"),
+        body: tr("The dish will move back to its working position and reconnect. This takes a minute or two."),
+        cta: tr("Unstow"),
         destructive: false,
       };
     case "snow_melt":
       return {
-        title: `Set snow melt to ${SNOW_MELT_LABELS[a.mode]}?`,
+        title: tr("Set snow melt to {{mode}}?", { mode: tr(SNOW_MELT_LABELS[a.mode]) }),
         body:
           a.mode === "always_on"
-            ? "The dish will heat continuously and draw noticeably more power, even when there is no snow."
+            ? tr("The dish will heat continuously and draw noticeably more power, even when there is no snow.")
             : a.mode === "always_off"
-              ? "The dish will never heat. Snow or ice can build up and interrupt service."
-              : "The dish will heat only when it detects snow or ice.",
-        cta: "Apply",
+              ? tr("The dish will never heat. Snow or ice can build up and interrupt service.")
+              : tr("The dish will heat only when it detects snow or ice."),
+        cta: tr("Apply"),
         destructive: a.mode === "always_on",
       };
   }
@@ -86,7 +89,8 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun, onOpenSetti
 
   const caps = capabilities;
   const none = caps && !caps.canReboot && !caps.canStow && !caps.canSetSnowMelt;
-  const lockReason = readOnly ? "Read-only mode is on" : !linkUp ? "The dish is not connected" : null;
+  const { t } = useTranslation();
+  const lockReason = readOnly ? t("Read-only mode is on") : !linkUp ? t("The dish is not connected") : null;
   const disabled = Boolean(lockReason) || busy !== null;
 
   const run = async (a: DishAction) => {
@@ -101,11 +105,11 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun, onOpenSetti
   const copy = pending ? confirmCopy(pending) : null;
 
   return (
-    <Section title="Dish controls" id="dish-controls">
+    <Section title={t("Dish controls")} id="dish-controls">
       {!caps ? (
-        <p className="text-sm text-muted-foreground">Controls appear once the dish reports what it supports.</p>
+        <p className="text-sm text-muted-foreground">{t("Controls appear once the dish reports what it supports.")}</p>
       ) : none ? (
-        <p className="text-sm text-muted-foreground">This dish does not expose any remote controls.</p>
+        <p className="text-sm text-muted-foreground">{t("This dish does not expose any remote controls.")}</p>
       ) : (
         <div className="flex flex-col gap-3">
           {lockReason && (
@@ -114,8 +118,8 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun, onOpenSetti
               <p className="flex-1 leading-relaxed text-muted-foreground">
                 {readOnly ? (
                   <>
-                    <span className="font-medium text-foreground">Read-only mode is on.</span> Controls are locked so
-                    nothing changes on the dish by accident.
+                    <span className="font-medium text-foreground">{t("Read-only mode is on.")}</span>{" "}
+                    {t("Controls are locked so nothing changes on the dish by accident.")}
                     {onOpenSettings && (
                       <>
                         {" "}
@@ -124,13 +128,13 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun, onOpenSetti
                           onClick={onOpenSettings}
                           className="rounded-sm font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-2"
                         >
-                          Turn it off in Settings
+                          {t("Turn it off in Settings")}
                         </button>
                       </>
                     )}
                   </>
                 ) : (
-                  <>Controls are available when the dish is connected.</>
+                  <>{t("Controls are available when the dish is connected.")}</>
                 )}
               </p>
             </div>
@@ -140,8 +144,8 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun, onOpenSetti
             {caps.canReboot && (
               <ActionButton
                 icon={<Power />}
-                label="Reboot dish"
-                hint="Restart the dish. About 2 minutes offline."
+                label={t("Reboot dish")}
+                hint={t("Restart the dish. About 2 minutes offline.")}
                 disabled={disabled}
                 locked={Boolean(lockReason)}
                 busy={busy === "reboot"}
@@ -152,8 +156,8 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun, onOpenSetti
               <>
                 <ActionButton
                   icon={<ArrowDownToLine />}
-                  label="Stow"
-                  hint="Lay the dish flat for transport or storms."
+                  label={t("Stow")}
+                  hint={t("Lay the dish flat for transport or storms.")}
                   disabled={disabled}
                   locked={Boolean(lockReason)}
                   busy={busy === "stow"}
@@ -161,8 +165,8 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun, onOpenSetti
                 />
                 <ActionButton
                   icon={<ArrowUpFromLine />}
-                  label="Unstow"
-                  hint="Return to working position."
+                  label={t("Unstow")}
+                  hint={t("Return to working position.")}
                   disabled={disabled}
                   locked={Boolean(lockReason)}
                   busy={busy === "unstow"}
@@ -176,12 +180,12 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun, onOpenSetti
             <div className="flex flex-col gap-2 rounded-lg bg-muted/40 p-2.5 ring-1 ring-border">
               <div className="flex items-center justify-between gap-2">
                 <span id="snow-melt-label" className="flex items-center gap-1.5 text-xs font-medium">
-                  <Snowflake className="size-3.5 text-muted-foreground" aria-hidden /> Snow melt
+                  <Snowflake className="size-3.5 text-muted-foreground" aria-hidden /> {t("Snow melt")}
                 </span>
                 <span id="snow-melt-current" className="text-xs text-muted-foreground">
-                  Current:{" "}
+                  {t("Current:")}{" "}
                   <span className="font-medium text-foreground">
-                    {currentSnow ? SNOW_MELT_LABELS[currentSnow] : "unknown"}
+                    {currentSnow ? t(SNOW_MELT_LABELS[currentSnow]) : t("unknown")}
                   </span>
                 </span>
               </div>
@@ -198,14 +202,14 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun, onOpenSetti
                   <SelectContent>
                     {(Object.keys(SNOW_MELT_LABELS) as SnowMeltMode[]).map((m) => (
                       <SelectItem key={m} value={m}>
-                        {SNOW_MELT_LABELS[m]}
-                        {m === currentSnow ? " (current)" : ""}
+                        {t(SNOW_MELT_LABELS[m])}
+                        {m === currentSnow ? ` (${t("current")})` : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <span id="snow-melt-new-label" className="sr-only">
-                  New snow melt mode
+                  {t("New snow melt mode")}
                 </span>
                 <Button
                   size="sm"
@@ -215,11 +219,11 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun, onOpenSetti
                   onClick={() => setPending({ type: "snow_melt", mode: snowMode })}
                 >
                   {busy === "snow_melt" && <Loader2 className="animate-spin" aria-hidden />}
-                  Apply
+                  {t("Apply")}
                 </Button>
               </div>
               {!lockReason && !snowChanged && (
-                <p className="text-[0.6875rem] text-muted-foreground">Pick a different mode to change it.</p>
+                <p className="text-[0.6875rem] text-muted-foreground">{t("Pick a different mode to change it.")}</p>
               )}
             </div>
           )}
@@ -235,7 +239,7 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun, onOpenSetti
                 <AlertDialogDescription>{copy.body}</AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
                 <AlertDialogAction
                   variant={copy.destructive ? "destructive" : "default"}
                   onClick={() => {

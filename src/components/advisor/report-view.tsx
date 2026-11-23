@@ -1,3 +1,6 @@
+import { useTranslation } from "react-i18next";
+import { tk } from "@/i18n/keys";
+import { formatDateTime } from "@/lib/format";
 import { useId, useState, type ReactNode } from "react";
 import {
   CircleAlert,
@@ -21,18 +24,18 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 const CATEGORY: Record<AiFindingCategory, { label: string; icon: ReactNode }> = {
-  wifi: { label: "Wi-Fi", icon: <Wifi /> },
-  obstruction: { label: "Obstructions", icon: <TreePine /> },
-  starlink_network: { label: "Starlink network", icon: <Satellite /> },
-  hardware: { label: "Hardware", icon: <Cpu /> },
-  power: { label: "Power", icon: <PlugZap /> },
-  configuration: { label: "Setup & alignment", icon: <Settings2 /> },
+  wifi: { label: tk("Wi-Fi"), icon: <Wifi /> },
+  obstruction: { label: tk("Obstructions"), icon: <TreePine /> },
+  starlink_network: { label: tk("Starlink network"), icon: <Satellite /> },
+  hardware: { label: tk("Hardware"), icon: <Cpu /> },
+  power: { label: tk("Power"), icon: <PlugZap /> },
+  configuration: { label: tk("Setup & alignment"), icon: <Settings2 /> },
 };
 
 const HEALTH: Record<AiOverallHealth, { label: string; icon: ReactNode; cls: string }> = {
-  good: { label: "Healthy", icon: <CircleCheck />, cls: "text-good ring-good/40 bg-good/10" },
-  fair: { label: "Needs attention", icon: <TriangleAlert />, cls: "text-warning ring-warning/40 bg-warning/10" },
-  poor: { label: "Poor", icon: <OctagonAlert />, cls: "text-critical ring-critical/40 bg-critical/10" },
+  good: { label: tk("Healthy"), icon: <CircleCheck />, cls: "text-good ring-good/40 bg-good/10" },
+  fair: { label: tk("Needs attention"), icon: <TriangleAlert />, cls: "text-warning ring-warning/40 bg-warning/10" },
+  poor: { label: tk("Poor"), icon: <OctagonAlert />, cls: "text-critical ring-critical/40 bg-critical/10" },
 };
 
 const SEVERITY_ICON: Record<AiSeverity, { icon: ReactNode; cls: string }> = {
@@ -42,6 +45,7 @@ const SEVERITY_ICON: Record<AiSeverity, { icon: ReactNode; cls: string }> = {
 };
 
 export function HealthBadge({ health }: { health: AiOverallHealth }) {
+  const { t } = useTranslation();
   const h = HEALTH[health] ?? HEALTH.fair;
   return (
     <span
@@ -51,7 +55,7 @@ export function HealthBadge({ health }: { health: AiOverallHealth }) {
       )}
     >
       <span aria-hidden>{h.icon}</span>
-      <span className="text-foreground">Overall: {h.label}</span>
+      <span className="text-foreground">{t("Overall: {{health}}", { health: t(h.label) })}</span>
     </span>
   );
 }
@@ -63,12 +67,13 @@ const SOURCE_ICON: Record<ReportSource, ReactNode> = {
 };
 
 export function SourceBadge({ source }: { source: ReportSource }) {
+  const { t } = useTranslation();
   return (
     <span className="inline-flex h-6 items-center gap-1.5 rounded-full bg-muted/70 px-2.5 text-xs text-muted-foreground ring-1 ring-border [&_svg]:size-3.5">
       <span aria-hidden>{SOURCE_ICON[source] ?? <Sparkles />}</span>
       <span>
-        <span className="sr-only">Source: </span>
-        {SOURCE_LABELS[source] ?? source}
+        <span className="sr-only">{t("Source:")} </span>
+        {SOURCE_LABELS[source] ? t(SOURCE_LABELS[source]) : source}
       </span>
     </span>
   );
@@ -84,10 +89,8 @@ interface Props {
 
 export function ReportView({ report, onRerun, rerunDisabled, onOpenSkyView }: Props) {
   const groups = groupFindings(report.findings);
-  const generated = new Date(report.generatedAtMs).toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+  const { t } = useTranslation();
+  const generated = formatDateTime(report.generatedAtMs);
 
   return (
     <article className="flex flex-col gap-3" aria-labelledby="report-headline">
@@ -101,8 +104,11 @@ export function ReportView({ report, onRerun, rerunDisabled, onOpenSkyView }: Pr
         </h2>
         <p className="mt-1 text-xs text-muted-foreground">
           {report.findings.length === 0
-            ? "No findings."
-            : `${report.findings.length} finding${report.findings.length === 1 ? "" : "s"} from the last ${report.payload.windowHours} hours.`}
+            ? t("No findings.")
+            : t("{{count}} findings from the last {{hours}} hours.", {
+                count: report.findings.length,
+                hours: report.payload.windowHours,
+              })}
         </p>
       </header>
 
@@ -112,7 +118,7 @@ export function ReportView({ report, onRerun, rerunDisabled, onOpenSkyView }: Pr
             <span aria-hidden className={cn("[&_svg]:size-3.5", SEVERITY_ICON[g.severity].cls)}>
               {SEVERITY_ICON[g.severity].icon}
             </span>
-            {SEVERITY_LABELS[g.severity]}
+            {t(SEVERITY_LABELS[g.severity])}
             <span className="num">· {g.findings.length}</span>
           </h3>
           <ul className="flex flex-col gap-2">
@@ -128,17 +134,16 @@ export function ReportView({ report, onRerun, rerunDisabled, onOpenSkyView }: Pr
       <footer className="flex flex-wrap items-center justify-between gap-2 px-1 text-[0.6875rem] text-muted-foreground">
         <span>
           {report.source === "rules" ? (
-            <>Generated {generated} by the built-in rules, on this computer</>
+            t("Generated {{date}} by the built-in rules, on this computer", { date: generated })
+          ) : report.source === "local" ? (
+            t("Generated {{date}} by {{model}} (local model)", { date: generated, model: report.model })
           ) : (
-            <>
-              Generated {generated} by <span className="num text-foreground/80">{report.model}</span>
-              {report.source === "local" ? " (local model)" : ""}
-            </>
+            t("Generated {{date}} by {{model}}", { date: generated, model: report.model })
           )}
         </span>
         {onRerun && (
           <Button size="sm" variant="outline" onClick={onRerun} disabled={rerunDisabled}>
-            <RefreshCw aria-hidden /> {report.source === "rules" ? "Run again" : "Explain again"}
+            <RefreshCw aria-hidden /> {report.source === "rules" ? t("Run again") : t("Explain again")}
           </Button>
         )}
       </footer>
@@ -147,6 +152,7 @@ export function ReportView({ report, onRerun, rerunDisabled, onOpenSkyView }: Pr
 }
 
 function FindingCard({ finding, onOpenSkyView }: { finding: AiFinding; onOpenSkyView?: () => void }) {
+  const { t } = useTranslation();
   const cat = CATEGORY[finding.category] ?? { label: finding.category, icon: <CircleAlert /> };
   const sev = SEVERITY_ICON[finding.severity] ?? SEVERITY_ICON.info;
   const [done, setDone] = useState<boolean[]>(() => finding.actions.map(() => false));
@@ -164,13 +170,13 @@ function FindingCard({ finding, onOpenSkyView }: { finding: AiFinding; onOpenSky
         <span aria-hidden className={cn("[&_svg]:size-3.5", sev.cls)}>
           {cat.icon}
         </span>
-        {cat.label}
+        {t(cat.label)}
       </div>
       <h4 className="mt-1 text-sm font-medium">{finding.title}</h4>
       <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{finding.detail}</p>
       {finding.actions.length > 0 && (
         <fieldset className="mt-2.5">
-          <legend className="sr-only">What to do</legend>
+          <legend className="sr-only">{t("What to do")}</legend>
           <ul className="flex flex-col gap-1.5">
             {finding.actions.map((a, i) => {
               const id = `${baseId}-a${i}`;
@@ -194,7 +200,7 @@ function FindingCard({ finding, onOpenSkyView }: { finding: AiFinding; onOpenSky
       )}
       {finding.category === "obstruction" && onOpenSkyView && (
         <Button size="xs" variant="ghost" className="mt-2 -ml-1.5 text-primary" onClick={onOpenSkyView}>
-          <TreePine aria-hidden /> Open Sky view
+          <TreePine aria-hidden /> {t("Open Sky view")}
         </Button>
       )}
     </div>

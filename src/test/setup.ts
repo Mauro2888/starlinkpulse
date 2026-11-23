@@ -1,4 +1,6 @@
 import "@testing-library/jest-dom/vitest";
+// Tests run in English unless a test switches language explicitly.
+import "@/i18n";
 import { afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
 

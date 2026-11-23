@@ -1,3 +1,6 @@
+import { useTranslation } from "react-i18next";
+import { tr } from "@/i18n";
+import { formatDate } from "@/lib/format";
 import { AlertTriangle, Info, OctagonAlert } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { DataUsage } from "@/types/models";
@@ -12,20 +15,23 @@ const C_DOWN = "var(--chart-1)";
 const C_UP = "var(--chart-2)";
 
 function dayLabel(ms: number): string {
-  return new Date(ms).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  return formatDate(ms, { day: "numeric", month: "short" });
 }
 
 const CAP_COPY: Record<Exclude<CapState, "none">, { bar: string; text: (pct: number) => string }> = {
-  ok: { bar: "bg-primary", text: (p) => `${p} % of your data cap` },
-  warning: { bar: "bg-warning", text: (p) => `${p} % of your data cap. You're getting close.` },
-  over: { bar: "bg-critical", text: (p) => `${p} % of your data cap. Over the limit.` },
+  ok: { bar: "bg-primary", text: (p) => tr("{{pct}} % of your data cap", { pct: p }) },
+  warning: { bar: "bg-warning", text: (p) => tr("{{pct}} % of your data cap. You're getting close.", { pct: p }) },
+  over: { bar: "bg-critical", text: (p) => tr("{{pct}} % of your data cap. Over the limit.", { pct: p }) },
 };
 
 export function DataUsageCard({ data, error }: { data: DataUsage | null; error: ApiError | null }) {
+  const { t } = useTranslation();
   return (
-    <Section title="Data usage" id="data-usage">
+    <Section title={t("Data usage")} id="data-usage">
       {!data && !error && <Skeleton className="h-40 rounded-lg" />}
-      {!data && error && <p className="text-xs text-muted-foreground">Couldn't load data usage. {error.message}</p>}
+      {!data && error && <p className="text-xs text-muted-foreground">
+          {t("Couldn't load data usage.")} {error.message}
+        </p>}
       {data && <UsageBody data={data} />}
     </Section>
   );
@@ -35,36 +41,37 @@ function UsageBody({ data }: { data: DataUsage }) {
   const progress = cycleProgress(data);
   const bars = cycleBars(data);
   const pct = progress.fraction === null ? 0 : Math.round(progress.fraction * 100);
-  const since = new Date(data.cycleStartMs).toLocaleDateString(undefined, { day: "numeric", month: "long" });
+  const { t } = useTranslation();
+  const since = formatDate(data.cycleStartMs, { day: "numeric", month: "long" });
 
   return (
     <div className="flex flex-col gap-3">
       <div>
-        <p className="text-xs text-muted-foreground">This cycle, since {since}</p>
+        <p className="text-xs text-muted-foreground">{t("This cycle, since {{date}}", { date: since })}</p>
         <p className="num mt-0.5 text-2xl font-medium tracking-tight">{formatBytes(progress.totalBytes)}</p>
         <p className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
           <span>
             <span aria-hidden className="mr-1 inline-block size-2 rounded-full" style={{ background: C_DOWN }} />
-            Download <span className="num text-foreground">{formatBytes(data.cycleDownloadBytes)}</span>
+            {t("Download")} <span className="num text-foreground">{formatBytes(data.cycleDownloadBytes)}</span>
           </span>
           <span>
             <span aria-hidden className="mr-1 inline-block size-2 rounded-full" style={{ background: C_UP }} />
-            Upload <span className="num text-foreground">{formatBytes(data.cycleUploadBytes)}</span>
+            {t("Upload")} <span className="num text-foreground">{formatBytes(data.cycleUploadBytes)}</span>
           </span>
         </p>
       </div>
 
       {progress.state === "none" ? (
-        <p className="text-xs text-muted-foreground">No data cap set. Add one in Controls → Settings to get alerts.</p>
+        <p className="text-xs text-muted-foreground">{t("No data cap set. Add one in Controls → Settings to get alerts.")}</p>
       ) : (
         <div className="flex flex-col gap-1.5">
           <div
             role="progressbar"
-            aria-label="Data cap used"
+            aria-label={t("Data cap used")}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={Math.min(100, pct)}
-            aria-valuetext={`${formatBytes(progress.totalBytes)} of ${formatBytes(progress.capBytes)}`}
+            aria-valuetext={t("{{used}} of {{cap}}", { used: formatBytes(progress.totalBytes), cap: formatBytes(progress.capBytes) })}
             className="h-2 w-full overflow-hidden rounded-full bg-muted"
           >
             <div className={cn("h-full rounded-full", CAP_COPY[progress.state].bar)} style={{ width: `${Math.min(100, pct)}%` }} />
@@ -88,23 +95,23 @@ function UsageBody({ data }: { data: DataUsage }) {
       {bars.length > 0 ? (
         <figure className="flex flex-col gap-1.5">
           <figcaption className="flex items-center justify-between text-[0.6875rem] text-muted-foreground">
-            <span>Per day, GB</span>
+            <span>{t("Per day, GB")}</span>
             <span className="flex gap-3">
               <span className="flex items-center gap-1">
-                <span aria-hidden className="size-2 rounded-[2px]" style={{ background: C_DOWN }} /> Download
+                <span aria-hidden className="size-2 rounded-[2px]" style={{ background: C_DOWN }} /> {t("Download")}
               </span>
               <span className="flex items-center gap-1">
-                <span aria-hidden className="size-2 rounded-[2px]" style={{ background: C_UP }} /> Upload
+                <span aria-hidden className="size-2 rounded-[2px]" style={{ background: C_UP }} /> {t("Upload")}
               </span>
             </span>
           </figcaption>
           <table className="sr-only">
-            <caption>Estimated data usage per day this cycle</caption>
+            <caption>{t("Estimated data usage per day this cycle")}</caption>
             <thead>
               <tr>
-                <th scope="col">Day</th>
-                <th scope="col">Download</th>
-                <th scope="col">Upload</th>
+                <th scope="col">{t("Day")}</th>
+                <th scope="col">{t("Download")}</th>
+                <th scope="col">{t("Upload")}</th>
               </tr>
             </thead>
             <tbody>
@@ -140,10 +147,10 @@ function UsageBody({ data }: { data: DataUsage }) {
                       <div className="rounded-md bg-popover px-2.5 py-2 text-xs text-popover-foreground shadow-lg ring-1 ring-border">
                         <p className="mb-1 text-muted-foreground">{dayLabel(row.dayMs)}</p>
                         <p className="flex justify-between gap-3">
-                          Download <span className="num">{formatBytes(row.down * 1e9)}</span>
+                          {t("Download")} <span className="num">{formatBytes(row.down * 1e9)}</span>
                         </p>
                         <p className="flex justify-between gap-3">
-                          Upload <span className="num">{formatBytes(row.up * 1e9)}</span>
+                          {t("Upload")} <span className="num">{formatBytes(row.up * 1e9)}</span>
                         </p>
                       </div>
                     );
@@ -157,12 +164,12 @@ function UsageBody({ data }: { data: DataUsage }) {
           </div>
         </figure>
       ) : (
-        <p className="text-xs text-muted-foreground">No usage recorded in this cycle yet.</p>
+        <p className="text-xs text-muted-foreground">{t("No usage recorded in this cycle yet.")}</p>
       )}
 
       <p className="flex items-start gap-1.5 text-[0.6875rem] leading-relaxed text-muted-foreground">
         <Info className="mt-px size-3 shrink-0" aria-hidden />
-        Estimate based on dish throughput, not your Starlink bill. Usage while StarlinkPulse wasn't running is missing.
+        {t("Estimate based on dish throughput, not your Starlink bill. Usage while StarlinkPulse wasn't running is missing.")}
       </p>
     </div>
   );

@@ -4,6 +4,8 @@ import { cellIndex, cellToSky } from "@/lib/sky";
 import { clampTilt, project, skyToVec, viewBasis, type Basis, type View } from "@/lib/dome";
 import { isNum } from "@/lib/format";
 import { snrColor } from "@/components/sky/sky-colors";
+import { useTranslation } from "react-i18next";
+import { tr } from "@/i18n";
 
 interface Props {
   map: ObstructionMap;
@@ -174,7 +176,7 @@ function draw(ctx: CanvasRenderingContext2D, size: number, cloud: Cloud, b: Basi
       const p = project({ x: v.x * 1.14, y: v.y * 1.14, z: 0 }, b);
       ctx.globalAlpha = p.depth >= 0 ? 0.9 : 0.45;
       ctx.fillStyle = fg;
-      ctx.fillText(t, cx + p.sx * R, cy + p.sy * R);
+      ctx.fillText(tr(t), cx + p.sx * R, cy + p.sy * R);
     }
     ctx.globalAlpha = 1;
   }
@@ -182,6 +184,7 @@ function draw(ctx: CanvasRenderingContext2D, size: number, cloud: Cloud, b: Basi
 
 /** Interactive dot-cloud dome. Drag or use the arrow keys to rotate; Home resets. */
 export function DomeView({ map, earthFrame, label, still = false }: Props) {
+  const { t, i18n } = useTranslation();
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const cloud = useMemo(() => buildCloud(map), [map]);
@@ -203,8 +206,7 @@ export function DomeView({ map, earthFrame, label, still = false }: Props) {
       typeof MutationObserver !== "undefined"
         ? new MutationObserver(() => {
             ink = readInk();
-            st.dirty = true;
-            kick();
+            if (st.size > 0) draw(ctx, st.size, cloud, viewBasis(view.current), earthFrame, ink);
           })
         : null;
     themeObserver?.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style"] });
@@ -217,7 +219,9 @@ export function DomeView({ map, earthFrame, label, still = false }: Props) {
       canvas.style.width = `${css}px`;
       canvas.style.height = `${css}px`;
       st.size = canvas.width;
-      st.dirty = true;
+      // Draw right away so the dome never shows blank while waiting for the first animation frame.
+      draw(ctx, st.size, cloud, viewBasis(view.current), earthFrame, ink);
+      st.dirty = false;
       kick();
     };
 
@@ -326,21 +330,21 @@ export function DomeView({ map, earthFrame, label, still = false }: Props) {
       canvas.removeEventListener("pointercancel", up);
       canvas.removeEventListener("keydown", key);
     };
-  }, [cloud, earthFrame, still]);
+  }, [cloud, earthFrame, still, i18n.language]);
 
   return (
-    <div ref={wrapRef} className="relative aspect-square w-full max-w-[17rem]">
+    <div ref={wrapRef} className="relative aspect-square w-full max-w-[17rem] dash3:max-w-[22rem]">
       <canvas
         ref={canvasRef}
         role="img"
-        aria-roledescription="rotatable 3D sky view"
-        aria-label={`Obstruction map, 3D view. ${label}`}
+        aria-label={`${t("Obstruction map, 3D view.")} ${label}`}
+        aria-roledescription={t("rotatable 3D sky view")}
         aria-describedby="dome-help"
         tabIndex={0}
         className="block size-full cursor-grab touch-none rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
       />
       <p id="dome-help" className="sr-only">
-        Drag, or use the arrow keys, to rotate. Home resets the view.
+        {t("Drag, or use the arrow keys, to rotate. Home resets the view.")}
       </p>
     </div>
   );

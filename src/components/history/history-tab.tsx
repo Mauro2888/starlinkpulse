@@ -1,11 +1,16 @@
 import { useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
 import { AlertCircle, History, RefreshCw } from "lucide-react";
-import { useCapabilities, useDataUsage, useEvents, useHistory, useUptime } from "@/hooks/use-pulse";
+import { useCapabilities, useDataUsage, useEvents, useHistory, useSettings, useUptime } from "@/hooks/use-pulse";
+import { useTranslation } from "react-i18next";
+import { BestTimesCard } from "@/components/history/best-times-card";
+import { LocationsCard } from "@/components/history/locations-card";
+import { EnergyCard } from "@/components/history/energy-card";
 import { UptimeCard } from "@/components/history/uptime-card";
 import { DataUsageCard } from "@/components/history/data-usage-card";
 import { bucketHistory, summarizeHistory } from "@/lib/history";
 import {
   EM_DASH,
+  fmtNum,
   formatClock,
   formatDurationMs,
   formatMs,
@@ -30,11 +35,12 @@ export const RANGES = [
 const C1 = "var(--chart-1)";
 const C2 = "var(--chart-2)";
 
-function fmtNum(digits: number) {
-  return (v: number) => (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(digits).replace(/\.0+$/, ""));
+function axisNum(digits: number) {
+  return (v: number) => fmtNum(v, Math.abs(v) >= 100 ? 0 : digits);
 }
 
 export function RangePicker({ value, onChange }: { value: number; onChange: (m: number) => void }) {
+  const { t } = useTranslation();
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const i = RANGES.findIndex((r) => r.minutes === value);
     let next = i;
@@ -49,7 +55,7 @@ export function RangePicker({ value, onChange }: { value: number; onChange: (m: 
   return (
     <div
       role="radiogroup"
-      aria-label="Time range"
+      aria-label={t("Time range")}
       onKeyDown={onKey}
       className="inline-flex h-7 items-center rounded-lg bg-muted p-0.5 ring-1 ring-border"
     >
@@ -78,6 +84,8 @@ export function RangePicker({ value, onChange }: { value: number; onChange: (m: 
 }
 
 export function HistoryTab() {
+  const { t } = useTranslation();
+  const { settings } = useSettings();
   const [range, setRange] = useState<number>(360);
   const history = useHistory(range);
   const evts = useEvents(range);
@@ -113,10 +121,10 @@ export function HistoryTab() {
       <StatePanel
         tone="critical"
         icon={<AlertCircle />}
-        title="Could not load history"
+        title={t("Could not load history")}
         action={
           <Button size="sm" variant="outline" onClick={refresh}>
-            <RefreshCw aria-hidden /> Try again
+            <RefreshCw aria-hidden /> {t("Try again")}
           </Button>
         }
       >
@@ -125,102 +133,114 @@ export function HistoryTab() {
     );
   } else if (points.length === 0) {
     body = (
-      <StatePanel icon={<History />} title="No history yet">
-        History builds up while the app runs. The dish keeps about 15 minutes of samples, which are saved here every
-        few minutes.
+      <StatePanel icon={<History />} title={t("No history yet")}>
+        {t(
+          "History builds up while the app runs. The dish keeps about 15 minutes of samples, which are saved here every few minutes.",
+        )}
       </StatePanel>
     );
   } else {
     body = (
       <div className="flex flex-col gap-3">
         <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <Stat label="Avg latency" value={formatMs(summary.latencyAvgMs)} />
-          <Stat label="Worst p95" value={formatMs(summary.latencyP95MaxMs)} />
-          <Stat label="Avg loss" value={formatPercent(summary.dropRateAvg, 2)} />
+          <Stat label={t("Avg latency")} value={formatMs(summary.latencyAvgMs)} />
+          <Stat label={t("Worst p95")} value={formatMs(summary.latencyP95MaxMs)} />
+          <Stat label={t("Avg loss")} value={formatPercent(summary.dropRateAvg, 2)} />
           <Stat
-            label="Outages"
-            value={String(summary.outageCount)}
-            detail={summary.outageCount > 0 ? `${formatDurationMs(summary.outageTotalMs)} total` : "None"}
+            label={t("Outages")}
+            value={fmtNum(summary.outageCount, 0)}
+            detail={
+              summary.outageCount > 0
+                ? t("{{duration}} total", { duration: formatDurationMs(summary.outageTotalMs) })
+                : t("None")
+            }
           />
         </dl>
         {summary.coverage < 0.9 && (
           <p className="text-xs text-muted-foreground">
-            Data covers {Math.round(summary.coverage * 100)}% of this range. Gaps mean the app was not running.
+            {t("Data covers {{pct}} of this range. Gaps mean the app was not running.", {
+              pct: formatPercent(summary.coverage, 0),
+            })}
           </p>
         )}
 
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid gap-3 md:grid-cols-2 dash3:grid-cols-3 dash4:grid-cols-4">
           <ChartCard>
             <TimeSeriesChart
-              title="Ping latency"
+              title={t("Ping latency")}
               unit="ms"
               rows={rows}
               fromMs={fromMs}
               toMs={toMs}
               events={events}
-              format={fmtNum(0)}
+              format={axisNum(0)}
               series={[
-                { key: "latAvg", label: "Average", color: C1 },
+                { key: "latAvg", label: t("Average"), color: C1 },
                 { key: "latP95", label: "p95", color: C2, dashed: true },
               ]}
-              summary={`Average ${formatMs(summary.latencyAvgMs)}, worst p95 ${formatMs(summary.latencyP95MaxMs)}.`}
+              summary={t("Average {{avg}}, worst p95 {{p95}}.", {
+                avg: formatMs(summary.latencyAvgMs),
+                p95: formatMs(summary.latencyP95MaxMs),
+              })}
             />
           </ChartCard>
           <ChartCard>
             <TimeSeriesChart
-              title="Ping drop rate"
+              title={t("Ping drop rate")}
               unit="%"
               rows={rows}
               fromMs={fromMs}
               toMs={toMs}
               events={events}
-              format={fmtNum(1)}
-              series={[{ key: "loss", label: "Drop rate", color: C1, kind: "area" }]}
-              summary={`Average ${formatPercent(summary.dropRateAvg, 2)}.`}
+              format={axisNum(1)}
+              series={[{ key: "loss", label: t("Drop rate"), color: C1, kind: "area" }]}
+              summary={t("Average {{avg}}.", { avg: formatPercent(summary.dropRateAvg, 2) })}
             />
           </ChartCard>
           <ChartCard>
             <TimeSeriesChart
-              title="Average throughput"
+              title={t("Average throughput")}
               unit="Mbps"
               rows={rows}
               fromMs={fromMs}
               toMs={toMs}
               events={events}
-              format={fmtNum(1)}
+              format={axisNum(1)}
               series={[
-                { key: "down", label: "Download", color: C1 },
-                { key: "up", label: "Upload", color: C2 },
+                { key: "down", label: t("Download"), color: C1 },
+                { key: "up", label: t("Upload"), color: C2 },
               ]}
-              summary={`Average download ${formatBps(summary.downAvgBps)}.`}
+              summary={t("Average download {{avg}}.", { avg: formatBps(summary.downAvgBps) })}
             />
           </ChartCard>
           {hasPower && (
             <ChartCard>
               <TimeSeriesChart
-                title="Power draw"
+                title={t("Power draw")}
                 unit="W"
                 rows={rows}
                 fromMs={fromMs}
                 toMs={toMs}
                 events={events}
-                format={fmtNum(0)}
+                format={axisNum(0)}
                 zeroBased={false}
-                series={[{ key: "power", label: "Average", color: C1 }]}
-                summary="Average power draw per interval."
+                series={[{ key: "power", label: t("Average"), color: C1 }]}
+                summary={t("Average power draw per interval.")}
               />
             </ChartCard>
           )}
         </div>
 
         <Section
-          title="Outage log"
-          aside={<span className="num text-xs text-muted-foreground">{events.length} in range</span>}
+          title={t("Outage log")}
+          aside={
+            <span className="num text-xs text-muted-foreground">{t("{{count}} in range", { count: events.length })}</span>
+          }
         >
           {events.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No outages in this range.</p>
+            <p className="text-sm text-muted-foreground">{t("No outages in this range.")}</p>
           ) : (
-            <ol className="flex max-h-56 flex-col divide-y divide-border overflow-y-auto pr-1 text-xs" tabIndex={0} aria-label="Outage list, newest first">
+            <ol className="flex max-h-56 flex-col divide-y divide-border overflow-y-auto pr-1 text-xs" tabIndex={0} aria-label={t("Outage list, newest first")}>
               {[...events].reverse().map((e) => (
                 <li key={`${e.startMs}-${e.cause}`} className="flex items-center gap-3 py-1.5">
                   <span className="num w-20 shrink-0 text-muted-foreground">{formatClock(e.startMs, range > 1440)}</span>
@@ -236,7 +256,11 @@ export function HistoryTab() {
               ))}
             </ol>
           )}
-          {evts.error && <p className="mt-2 text-xs text-critical">Could not load events: {evts.error.message}</p>}
+          {evts.error && (
+            <p className="mt-2 text-xs text-critical">
+              {t("Could not load events: {{error}}", { error: evts.error.message })}
+            </p>
+          )}
         </Section>
       </div>
     );
@@ -244,13 +268,21 @@ export function HistoryTab() {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="grid gap-3 md:grid-cols-2 md:items-start">
+      {/* Summary cards: 1 col tray, 2 ≥ 768, 3 ≥ 1200, 4 ≥ 1600. */}
+      <div className="grid grid-flow-row-dense gap-3 md:grid-cols-2 md:items-start dash3:grid-cols-3 dash4:grid-cols-4">
         <UptimeCard data={uptime.data} error={uptime.error} />
         <DataUsageCard data={usage.data} error={usage.error} />
+        {caps?.hasPowerTelemetry && <EnergyCard battery={settings?.battery ?? null} />}
+        <div className="min-w-0 md:col-span-2">
+          <BestTimesCard />
+        </div>
+        <div className="min-w-0 md:col-span-2">
+          <LocationsCard />
+        </div>
       </div>
       <div className="flex items-center justify-between gap-2">
         <RangePicker value={range} onChange={setRange} />
-        <Button size="icon-sm" variant="ghost" onClick={refresh} aria-label="Refresh history" title="Refresh">
+        <Button size="icon-sm" variant="ghost" onClick={refresh} aria-label={t("Refresh history")} title={t("Refresh")}>
           <RefreshCw className={cn(history.loading && "animate-spin motion-reduce:animate-none")} aria-hidden />
         </Button>
       </div>
