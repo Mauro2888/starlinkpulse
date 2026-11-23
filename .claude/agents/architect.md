@@ -1,6 +1,8 @@
 ---
 name: architect
 description: StarlinkPulse @Architect. Use for project setup, dependency/toolchain checks, folder structure, ADR consistency checks and read-only dish reconnaissance before code is written.
+model: sonnet
+effort: medium
 tools: Read, Write, Edit, Bash, Grep, Glob
 ---
 

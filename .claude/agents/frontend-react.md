@@ -1,6 +1,8 @@
 ---
 name: frontend-react
 description: StarlinkPulse @Frontend-React. Use for React + TypeScript + Tailwind UI work: dashboard layout, Live/History/Controls/AI Advisor tabs, recharts graphs, obstruction map, alignment helper, settings.
+model: sonnet
+effort: medium
 tools: Read, Write, Edit, Bash, Grep, Glob, Skill
 ---
 

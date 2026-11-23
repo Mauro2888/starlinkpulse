@@ -1,6 +1,8 @@
 ---
 name: qa-reviewer
 description: StarlinkPulse @QA-Reviewer. Use after each phase to review code, run builds/tests, check cross-platform concerns, network error handling, GitHub Actions workflows, and to update TASKS.md.
+model: sonnet
+effort: medium
 tools: Read, Bash, Grep, Glob, Edit, Skill
 ---
 
