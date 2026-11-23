@@ -142,6 +142,9 @@ catalog!(ErrorTexts {
     alignment_manual_only:
         "Alignment mode is only available for dishes without motors.",
         "La modalità allineamento è disponibile solo per parabole senza motori.";
+    weather_unreachable:
+        "Weather service unreachable. Try again later.",
+        "Servizio meteo non raggiungibile. Riprova più tardi.";
     not_connected:
         "Not connected to the dish.",
         "Non connesso alla parabola.";

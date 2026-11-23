@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use reqwest::Url;
 use serde_json::Value;
 
-use crate::ai::http::{BodyError, MAX_BODY_BYTES, client_builder, read_capped};
+use crate::ai::http::{MAX_BODY_BYTES, client_builder, read_capped};
 use crate::error::AppError;
 use crate::i18n::Lang;
 use crate::models::{WeatherLocation, WeatherPlace, WeatherPoint, WeatherSeries};
@@ -34,12 +34,11 @@ fn key(lat: f64, lon: f64) -> CacheKey {
     ((lat * 100.0).round() as i32, (lon * 100.0).round() as i32)
 }
 
-fn net_err(e: &reqwest::Error) -> AppError {
-    if e.is_timeout() {
-        AppError::Client(crate::error::ClientError::Timeout)
-    } else {
-        AppError::Network("Weather service unreachable".into())
-    }
+/// Every weather failure maps to one message (localized in `AppError::localized_message`).
+pub const UNREACHABLE: &str = "Weather service unreachable. Try again later.";
+
+fn unreachable() -> AppError {
+    AppError::Network(UNREACHABLE.into())
 }
 
 async fn fetch_json(url: Url) -> Result<Value, AppError> {
@@ -47,17 +46,14 @@ async fn fetch_json(url: Url) -> Result<Value, AppError> {
         .timeout(TIMEOUT)
         .build()
         .map_err(|_| AppError::Internal("http client".into()))?;
-    let resp = client.get(url).send().await.map_err(|e| net_err(&e))?;
+    let resp = client.get(url).send().await.map_err(|_| unreachable())?;
     if !resp.status().is_success() {
-        return Err(AppError::Network("Weather service unavailable".into()));
+        return Err(unreachable());
     }
     let body = read_capped(resp, MAX_BODY_BYTES)
         .await
-        .map_err(|e| match e {
-            BodyError::Timeout => AppError::Client(crate::error::ClientError::Timeout),
-            _ => AppError::Network("Weather service unavailable".into()),
-        })?;
-    serde_json::from_str(&body).map_err(|_| AppError::Network("Unexpected weather response".into()))
+        .map_err(|_| unreachable())?;
+    serde_json::from_str(&body).map_err(|_| unreachable())
 }
 
 fn opt_str(v: &Value, k: &str) -> Option<String> {
@@ -109,8 +105,10 @@ pub fn parse_hourly(v: &Value) -> Vec<WeatherPoint> {
         .enumerate()
         .filter_map(|(i, t)| {
             let secs = t.as_i64()?;
+            // Open-Meteo hourly precipitation/snowfall are sums over the preceding hour,
+            // so the timestamp is the end of the hour; `hour_ms` is its start.
             Some(WeatherPoint {
-                hour_ms: secs.checked_mul(1000)?,
+                hour_ms: secs.checked_mul(1000)? - HOUR_MS,
                 precipitation_mm: col("precipitation", i),
                 snowfall_cm: col("snowfall", i),
                 cloud_cover_pct: col("cloud_cover", i),
@@ -259,7 +257,7 @@ mod tests {
         }});
         let p = parse_hourly(&v);
         assert_eq!(p.len(), 3);
-        assert_eq!(p[0].hour_ms, 3_600_000);
+        assert_eq!(p[0].hour_ms, 0, "timestamp is the end of the hour");
         assert_eq!(p[0].precipitation_mm, None);
         assert_eq!(p[1].precipitation_mm, Some(0.5));
         assert_eq!(p[0].wind_kmh, None);
@@ -368,7 +366,7 @@ mod tests {
         assert_eq!(s.points.len(), 3); // hours 8, 9, 10
         assert_eq!(s.points[2].precipitation_mm, Some(0.2));
         let s2 = get_at(&base, &cache, Some(loc), 1440, now).await.unwrap();
-        assert_eq!(s2.points.len(), 11);
+        assert_eq!(s2.points.len(), 12); // timestamps 0..11 h = hour starts -1..10 h
         assert_eq!(seen.lock().unwrap().len(), 1);
     }
 

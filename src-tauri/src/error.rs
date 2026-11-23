@@ -157,6 +157,9 @@ impl AppError {
                     .map(|(_, l)| l.to_string())
                     .unwrap_or_else(|| self.to_string())
             }
+            AppError::Network(m) if m == crate::weather::UNREACHABLE => {
+                t.weather_unreachable.into()
+            }
             AppError::Client(ClientError::Unreachable(m)) if m == "not connected" => {
                 t.not_connected.into()
             }

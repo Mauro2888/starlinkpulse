@@ -976,6 +976,7 @@ function WeatherFields({ value, onChange }: { value: WeatherLocation | null; onC
   const [error, setError] = useState<string | null>(null);
 
   const search = async () => {
+    if (busy) return;
     const q = query.trim();
     if (q.length < 2) {
       setError(t("Type at least 2 characters."));
@@ -994,8 +995,9 @@ function WeatherFields({ value, onChange }: { value: WeatherLocation | null; onC
   };
 
   const pick = (p: WeatherPlace) => {
-    const label = [p.name, p.admin1, p.country].filter(Boolean).join(", ").slice(0, 100);
-    onChange({ name: label, latitude: p.latitude, longitude: p.longitude });
+    const label = [p.name, p.admin1, p.country].filter(Boolean).join(", ");
+    const label100 = Array.from(label).slice(0, 100).join("");
+    onChange({ name: label100, latitude: p.latitude, longitude: p.longitude });
     setPlaces(null);
     setQuery("");
   };
@@ -1045,8 +1047,8 @@ function WeatherFields({ value, onChange }: { value: WeatherLocation | null; onC
       {places && places.length === 0 && <p className="text-xs text-muted-foreground">{t("No places found.")}</p>}
       {places && places.length > 0 && (
         <ul className="flex flex-col divide-y divide-border rounded-lg ring-1 ring-border" aria-label={t("Search results")}>
-          {places.map((p) => (
-            <li key={`${p.latitude},${p.longitude}`}>
+          {places.map((p, i) => (
+            <li key={i}>
               <button
                 type="button"
                 onClick={() => pick(p)}
