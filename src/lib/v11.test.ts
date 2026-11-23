@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { HourCell } from "@/types/models";
 import { bestAndWorst, toMatrix, weekdayName } from "@/lib/time-of-day";
-import { batteryWh, runtimeSeconds, summarizeEnergy } from "@/lib/energy";
+import { batteryWh, energyCost, formatMoney, runtimeSeconds, summarizeEnergy } from "@/lib/energy";
 import { hasEnoughData } from "@/components/history/locations-card";
 import { validateSettings } from "@/lib/settings";
 import { DEFAULT_SETTINGS } from "@/lib/mock";
@@ -72,5 +72,22 @@ describe("locations and battery settings", () => {
     expect(validateSettings({ ...base, battery: { capacityAh: 100, voltage: 12, usableFraction: 0.8 } })).toEqual({});
     expect(validateSettings({ ...base, battery: { capacityAh: 0, voltage: 12, usableFraction: 0.8 } }).battery).toBeTruthy();
     expect(validateSettings({ ...base, battery: { capacityAh: 100, voltage: 12, usableFraction: 0.05 } }).battery).toBeTruthy();
+  });
+});
+
+describe("energy cost", () => {
+  it("prices daily use per day/month/year", () => {
+    const c = energyCost(720, { perKwh: 0.12, currency: "EUR" })!;
+    expect(c.day).toBeCloseTo(0.0864);
+    expect(c.month).toBeCloseTo(2.592);
+    expect(c.year).toBeCloseTo(31.536);
+  });
+  it("is null without price or data", () => {
+    expect(energyCost(720, null)).toBeNull();
+    expect(energyCost(null, { perKwh: 0.12, currency: "EUR" })).toBeNull();
+  });
+  it("formats money and falls back for unknown codes", () => {
+    expect(formatMoney(2.5, "EUR")).toMatch(/2[.,]50/);
+    expect(formatMoney(2.5, "12")).toContain("12");
   });
 });

@@ -1,9 +1,9 @@
 import { useTranslation } from "react-i18next";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import type { BatteryConfig, DailyEnergy } from "@/types/models";
+import type { BatteryConfig, DailyEnergy, EnergyPrice } from "@/types/models";
 import { useEnergy } from "@/hooks/use-pulse";
 import { EM_DASH, fmtNum, formatDate, formatDuration, formatWatts, isNum } from "@/lib/format";
-import { batteryWh, runtimeSeconds, summarizeEnergy } from "@/lib/energy";
+import { batteryWh, energyCost, formatMoney, runtimeSeconds, summarizeEnergy } from "@/lib/energy";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Section } from "@/components/state-panels";
 
@@ -17,12 +17,14 @@ function formatWh(wh: number | null): string {
 }
 
 /** Daily energy use and battery runtime (only shown when the dish reports power). */
-export function EnergyCard({ battery }: { battery: BatteryConfig | null }) {
+export function EnergyCard({ battery, price }: { battery: BatteryConfig | null; price: EnergyPrice | null }) {
   const { t } = useTranslation();
   const energy = useEnergy(14);
   const days: DailyEnergy[] = energy.data ?? [];
   const s = summarizeEnergy(days);
   const runtime = runtimeSeconds(battery, s.avgW);
+  // Full days first; before the first full day, extrapolate from the average draw.
+  const cost = energyCost(s.whPerDay ?? (isNum(s.avgW) ? s.avgW * 24 : null), price);
 
   return (
     <Section title={t("Energy")} id="energy" className="min-w-0">
@@ -89,6 +91,34 @@ export function EnergyCard({ battery }: { battery: BatteryConfig | null }) {
               </ResponsiveContainer>
             </div>
           </figure>
+
+          {price ? (
+            cost && (
+              <dl className="grid grid-cols-3 gap-2 border-t border-border pt-3">
+                {(
+                  [
+                    [t("Cost per day"), cost.day],
+                    [t("Per month"), cost.month],
+                    [t("Per year"), cost.year],
+                  ] as const
+                ).map(([label, v]) => (
+                  <div key={label}>
+                    <dt className="eyebrow">{label}</dt>
+                    <dd className="num text-base font-medium">{formatMoney(v, price.currency)}</dd>
+                  </div>
+                ))}
+                <p className="col-span-3 text-[0.6875rem] text-muted-foreground">
+                  {t("Estimate at {{price}}/kWh. Change the price in Controls → Settings.", {
+                    price: formatMoney(price.perKwh, price.currency),
+                  })}
+                </p>
+              </dl>
+            )
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {t("Add your electricity price in Controls → Settings to see what the dish costs.")}
+            </p>
+          )}
 
           {battery ? (
             <p className="text-sm">

@@ -6,6 +6,7 @@ import type {
   AiProvider,
   AppLanguage,
   BatteryConfig,
+  EnergyPrice,
   LocalAiKind,
   MockMode,
   MockProfile,
@@ -302,6 +303,15 @@ export function SettingsForm({ settings, onSave, readOnlySwitchId = "read-only-s
         <WeatherFields
           value={draft.weatherLocation}
           onChange={(w) => set("weatherLocation", w)}
+        />
+
+        <EnergyPriceFields
+          value={draft.energyPrice}
+          error={errors.energyPrice}
+          onChange={(p) => {
+            setDraft((d) => ({ ...d, energyPrice: p }));
+            setErrors((e) => ({ ...e, energyPrice: undefined }));
+          }}
         />
 
         <BatteryFields
@@ -863,6 +873,89 @@ function LocalModelPicker({
 
 /** Native names: shown untranslated so people can find their language. */
 const LANGUAGE_NAMES = { en: "English", it: "Italiano" } as const;
+
+const DEFAULT_PRICE: EnergyPrice = { perKwh: 0.25, currency: "EUR" };
+
+/** Optional electricity price: the Energy card then shows the dish's running cost. */
+function EnergyPriceFields({
+  value,
+  error,
+  onChange,
+}: {
+  value: EnergyPrice | null;
+  error?: string;
+  onChange: (p: EnergyPrice | null) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <fieldset className="flex flex-col gap-3 border-t border-border pt-4">
+      <legend className="eyebrow mb-2">{t("Electricity cost")}</legend>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <Label htmlFor="price-switch" className="text-sm">
+            {t("Show what the dish costs to run")}
+          </Label>
+          <p id="price-desc" className="mt-0.5 text-xs text-muted-foreground">
+            {t("Uses the dish's measured energy and your price per kWh. Include taxes and fees for a realistic figure.")}
+          </p>
+        </div>
+        <Switch
+          id="price-switch"
+          aria-describedby="price-desc"
+          checked={value !== null}
+          onCheckedChange={(on) => onChange(on ? (value ?? DEFAULT_PRICE) : null)}
+        />
+      </div>
+      {value && (
+        <>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label={t("Price per kWh")}>
+              {(p) => (
+                <Input
+                  {...p}
+                  type="number"
+                  min={0.001}
+                  max={10}
+                  step={0.001}
+                  inputMode="decimal"
+                  value={Number.isFinite(value.perKwh) ? value.perKwh : ""}
+                  onChange={(e) => onChange({ ...value, perKwh: e.target.value === "" ? NaN : Number(e.target.value) })}
+                  aria-invalid={error ? true : undefined}
+                  className="num"
+                />
+              )}
+            </Field>
+            <Field label={t("Currency")}>
+              {(p) => (
+                <>
+                  <Input
+                    {...p}
+                    maxLength={3}
+                    list="price-currencies"
+                    value={value.currency}
+                    onChange={(e) => onChange({ ...value, currency: e.target.value.toUpperCase() })}
+                    aria-invalid={error ? true : undefined}
+                    className="num uppercase"
+                  />
+                  <datalist id="price-currencies">
+                    {["EUR", "USD", "GBP", "CHF", "CAD", "AUD"].map((c) => (
+                      <option key={c} value={c} />
+                    ))}
+                  </datalist>
+                </>
+              )}
+            </Field>
+          </div>
+          {error && (
+            <p className="text-[0.6875rem] text-critical" role="alert">
+              {error}
+            </p>
+          )}
+        </>
+      )}
+    </fieldset>
+  );
+}
 
 const DEFAULT_BATTERY: BatteryConfig = { capacityAh: 100, voltage: 12, usableFraction: 0.8 };
 

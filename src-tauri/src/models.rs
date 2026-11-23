@@ -149,6 +149,16 @@ pub struct BatteryConfig {
     pub usable_fraction: f64,
 }
 
+/// Electricity price used to show the dish's energy cost (computed in the UI).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnergyPrice {
+    /// Price per kWh in `currency`, 0 < x ≤ 10.
+    pub per_kwh: f64,
+    /// ISO 4217 code, e.g. "EUR".
+    pub currency: String,
+}
+
 /// Statistics for one location tag ("" = untagged).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -346,6 +356,8 @@ pub struct Settings {
     pub active_location: Option<String>,
     /// Optional battery for off-grid runtime estimates; `None` = not configured.
     pub battery: Option<BatteryConfig>,
+    /// Electricity price for energy cost estimates; `None` = not configured.
+    pub energy_price: Option<EnergyPrice>,
     pub notifications: NotificationSettings,
     /// Monthly data cap in GB for usage alerts; `None` = no cap.
     pub data_cap_gb: Option<f64>,
@@ -545,6 +557,7 @@ impl Default for Settings {
             language: AppLanguage::System,
             active_location: None,
             battery: None,
+            energy_price: None,
             notifications: NotificationSettings::default(),
             data_cap_gb: None,
             billing_cycle_day: 1,

@@ -43,6 +43,11 @@ export function validateSettings(s: Settings): SettingsErrors {
       Number.isFinite(b.usableFraction) && b.usableFraction >= 0.1 && b.usableFraction <= 1;
     if (!ok) e.battery = t("Check the battery values: capacity and voltage above 0, usable between 10 and 100 %.");
   }
+  if (s.energyPrice) {
+    const p = s.energyPrice;
+    const ok = Number.isFinite(p.perKwh) && p.perKwh > 0 && p.perKwh <= 10 && /^[A-Za-z]{3}$/.test(p.currency.trim());
+    if (!ok) e.energyPrice = t("Enter a price between 0 and 10 and a 3-letter currency code (e.g. EUR).");
+  }
   const { quietStartHour: qs, quietEndHour: qe } = s.notifications;
   if ((qs === null) !== (qe === null)) e.quietHours = t("Set both a start and an end, or turn quiet hours off.");
   else if (qs !== null && qs === qe) e.quietHours = t("Start and end must be different hours.");

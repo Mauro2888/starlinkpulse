@@ -300,7 +300,7 @@ export function HistoryTab() {
       <div className="grid gap-3 md:grid-cols-2 dash3:grid-cols-3 dash4:grid-cols-4">
         <div className="flex min-w-0 flex-col gap-3 dash3:contents dash4:flex [&>section]:flex-1">
           <UptimeCard data={uptime.data} error={uptime.error} />
-          {hasEnergy && <EnergyCard battery={settings?.battery ?? null} />}
+          {hasEnergy && <EnergyCard battery={settings?.battery ?? null} price={settings?.energyPrice ?? null} />}
         </div>
         <div className={cn("min-w-0 [&>section]:h-full", !hasEnergy && "dash3:col-span-2 dash4:col-span-1")}>
           <DataUsageCard data={usage.data} error={usage.error} />

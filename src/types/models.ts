@@ -153,6 +153,8 @@ export interface Settings {
   activeLocation: string | null;
   /** Optional battery for off-grid runtime estimates; null = not configured. */
   battery: BatteryConfig | null;
+  /** Electricity price for energy cost estimates; null = not configured. */
+  energyPrice: EnergyPrice | null;
   /** Optional place for weather correlation (opt-in); null = off. */
   weatherLocation: WeatherLocation | null;
   notifications: NotificationSettings;
@@ -349,6 +351,13 @@ export interface BatteryConfig {
   voltage: number;
   /** Usable fraction 0.1–1 (e.g. 0.8 for LiFePO4 at 80 % DoD). */
   usableFraction: number;
+}
+
+export interface EnergyPrice {
+  /** Price per kWh in `currency`, 0 < x ≤ 10. */
+  perKwh: number;
+  /** ISO 4217 code, e.g. "EUR". */
+  currency: string;
 }
 
 export interface LocationStats {

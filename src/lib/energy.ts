@@ -1,5 +1,5 @@
-import type { BatteryConfig, DailyEnergy } from "@/types/models";
-import { isNum } from "@/lib/format";
+import type { BatteryConfig, DailyEnergy, EnergyPrice } from "@/types/models";
+import { fmtNum, getFormatLocale, isNum } from "@/lib/format";
 
 /** Usable energy of the battery in Wh. */
 export function batteryWh(b: BatteryConfig): number {
@@ -10,6 +10,25 @@ export function batteryWh(b: BatteryConfig): number {
 export function runtimeSeconds(b: BatteryConfig | null | undefined, watts: number | null | undefined): number | null {
   if (!b || !isNum(watts) || watts <= 0) return null;
   return (batteryWh(b) / watts) * 3600;
+}
+
+/** Energy cost per day/month/year for a daily use in Wh; null without data or price. */
+export function energyCost(
+  whPerDay: number | null,
+  price: EnergyPrice | null | undefined,
+): { day: number; month: number; year: number } | null {
+  if (!price || !isNum(whPerDay) || whPerDay <= 0) return null;
+  const day = (whPerDay / 1000) * price.perKwh;
+  return { day, month: day * 30, year: day * 365 };
+}
+
+/** Locale-aware money amount; falls back to "12.34 XYZ" if the code is not accepted. */
+export function formatMoney(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat(getFormatLocale(), { style: "currency", currency }).format(amount);
+  } catch {
+    return `${fmtNum(amount, 2, true)} ${currency}`;
+  }
 }
 
 /** Mean of the non-null values, or null. */

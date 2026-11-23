@@ -117,3 +117,8 @@ All commands are async and return `Result<T, CommandError>`; arguments are camel
   coordinates go to Open-Meteo). History tab: hourly precipitation/snow chart aligned with the latency chart,
   rain/snow marker on outages whose hour had precipitation ≥ 0.1 mm or snowfall > 0, and a line
   "N of M outages during rain or snow".
+
+## Energy cost (opt-in)
+- Settings: `energyPrice: { perKwh: number, currency: string } | null` (default `null`). Backend validates
+  0 < perKwh ≤ 10 and a 3-letter ISO 4217 code (trimmed, uppercased). Cost is computed in the UI from the
+  Energy card's Wh per day (full days; average draw × 24 h before the first full day): per day, ×30, ×365.

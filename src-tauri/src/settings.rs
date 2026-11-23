@@ -91,6 +91,19 @@ pub fn validate(mut s: Settings) -> Result<Settings, AppError> {
             ));
         }
     }
+    if let Some(p) = &mut s.energy_price {
+        p.currency = p.currency.trim().to_ascii_uppercase();
+        let ok = p.per_kwh.is_finite()
+            && p.per_kwh > 0.0
+            && p.per_kwh <= 10.0
+            && p.currency.len() == 3
+            && p.currency.bytes().all(|b| b.is_ascii_uppercase());
+        if !ok {
+            return Err(AppError::InvalidInput(
+                "energyPrice: perKwh 0–10, currency a 3-letter ISO code".into(),
+            ));
+        }
+    }
     if !(1..=28).contains(&s.billing_cycle_day) {
         return Err(AppError::InvalidInput(
             "billingCycleDay must be between 1 and 28".into(),
@@ -383,6 +396,28 @@ mod tests {
         // Old settings files without the field still load.
         let old: Settings = serde_json::from_str("{}").unwrap();
         assert_eq!(old.weather_location, None);
+    }
+
+    #[test]
+    fn energy_price_validation() {
+        use crate::models::EnergyPrice;
+        let price = |k: f64, c: &str| Settings {
+            energy_price: Some(EnergyPrice {
+                per_kwh: k,
+                currency: c.into(),
+            }),
+            ..Settings::default()
+        };
+        let p = validate(price(0.12, " eur "))
+            .unwrap()
+            .energy_price
+            .unwrap();
+        assert_eq!((p.per_kwh, p.currency.as_str()), (0.12, "EUR"));
+        assert!(validate(price(0.0, "EUR")).is_err());
+        assert!(validate(price(11.0, "EUR")).is_err());
+        assert!(validate(price(f64::NAN, "EUR")).is_err());
+        assert!(validate(price(0.2, "EU")).is_err());
+        assert!(validate(price(0.2, "€UR")).is_err());
     }
 
     #[test]

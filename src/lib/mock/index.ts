@@ -57,6 +57,7 @@ export const DEFAULT_SETTINGS: Settings = {
   language: "system",
   activeLocation: null,
   battery: null,
+  energyPrice: null,
   weatherLocation: null,
 };
 
