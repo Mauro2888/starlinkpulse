@@ -130,6 +130,50 @@ const LEVEL: Record<ReadinessLevel, { label: string; icon: ReactNode; cls: strin
   poor: { label: tk("Poor"), icon: <CircleX />, cls: "text-critical", ring: "ring-critical/40" },
 };
 
+/** One row of all tiles from 1200 px. */
+const WIDE_COLS: Record<number, string> = {
+  5: "dash3:grid-cols-5",
+  6: "dash3:grid-cols-6",
+  7: "dash3:grid-cols-7",
+};
+
+/**
+ * Span for the last tile so the final row is full: 2 columns below 768 px and
+ * 4 columns up to 1200 px (e.g. 7 tiles → 4 + 3 with the last spanning 2).
+ */
+export function lastTileSpan(i: number, n: number): string | undefined {
+  if (i !== n - 1) return undefined;
+  const narrow = n % 2 === 1 ? "col-span-2" : "";
+  const r = n % 4;
+  const md = r === 0 ? "md:col-span-1" : ({ 1: "md:col-span-4", 2: "md:col-span-3", 3: "md:col-span-2" } as const)[r];
+  return cn(narrow, md, "dash3:col-span-1");
+}
+
+/** Grid classes for the bottom band, depending on which optional cards exist. */
+export function bandThree(hasSky: boolean, hasAlign: boolean) {
+  // Status stack: vertical column next to other cards, or a row of three when it spans the width.
+  const stackCol = "flex flex-col gap-3";
+  const stackRow = "grid gap-3 md:grid-cols-3 [&>section]:h-full";
+  if (hasSky && hasAlign) {
+    return {
+      grid: "md:grid-cols-2 dash3:grid-cols-3 dash4:grid-cols-4",
+      sky: "dash4:col-span-2",
+      align: "",
+      // md: own full-width row of three; from 1200 px a vertical column.
+      status: cn(stackRow, "md:col-span-2 dash3:col-span-1 dash3:flex dash3:flex-col"),
+    };
+  }
+  if (hasSky || hasAlign) {
+    return {
+      grid: "md:grid-cols-2 dash3:grid-cols-3 dash4:grid-cols-4",
+      sky: "dash3:col-span-2 dash4:col-span-3",
+      align: "dash3:col-span-2 dash4:col-span-3",
+      status: stackCol,
+    };
+  }
+  return { grid: "", sky: "", align: "", status: stackRow };
+}
+
 export const GPS_SATS_HINT = tk(
   "Used for location/timing. The dish does not report how many Starlink satellites it is connected to.",
 );
@@ -199,6 +243,94 @@ export function LiveView({
   const recentW = mean(series((x) => x.powerW)) ?? s.powerW;
   const runtime = runtimeSeconds(battery, recentW);
 
+  const tiles: { key: string; props: Parameters<typeof MetricTile>[0] }[] = [
+    {
+      key: "latency",
+      props: {
+        label: t("Latency"),
+        icon: <Gauge />,
+        parts: formatMsParts(s.popPingLatencyMs),
+        ...tile(latencyTone(s.popPingLatencyMs)),
+        spark: <Sparkline values={series((x) => x.popPingLatencyMs)} height={18} className="text-chart-1" />,
+      },
+    },
+    {
+      key: "jitter",
+      props: {
+        label: t("Jitter"),
+        icon: <Activity />,
+        parts: formatMsParts(s.jitterMs),
+        ...tile(jitterTone(s.jitterMs)),
+        missingHint: tk("Jitter appears after a few readings"),
+        spark: <Sparkline values={series((x) => x.jitterMs)} height={18} className="text-chart-1" />,
+      },
+    },
+    {
+      key: "drop",
+      props: {
+        label: t("Drop rate"),
+        icon: <Waves />,
+        parts: formatPercentParts(s.popPingDropRate),
+        ...tile(dropTone(s.popPingDropRate)),
+        spark: <Sparkline values={series((x) => x.popPingDropRate)} height={18} zeroBased className="text-chart-1" />,
+      },
+    },
+    {
+      key: "signal",
+      props: {
+        label: t("Signal"),
+        icon: <Radio />,
+        parts: formatPercentParts(s.signalQuality, 0),
+        ...tile(signalNote(s)),
+        missingHint: tk("This firmware does not report a numeric signal quality"),
+      },
+    },
+    {
+      key: "obstruction",
+      props: {
+        label: t("Obstruction"),
+        icon: <TreePine />,
+        parts: formatPercentParts(s.obstruction.fractionObstructed),
+        ...tile(obstructionNote(s)),
+      },
+    },
+    {
+      key: "uptime",
+      props: {
+        label: t("Uptime"),
+        icon: <Clock />,
+        parts: { value: formatDuration(s.uptimeS), unit: "" },
+        note: isNum(s.uptimeS) ? t("Since last reboot") : undefined,
+      },
+    },
+  ];
+  if (showPower) {
+    tiles.push({
+      key: "power",
+      props: {
+        label: t("Power"),
+        icon: <PlugZap />,
+        parts: formatWattsParts(s.powerW),
+        note:
+          runtime !== null
+            ? t("≈ {{runtime}} on battery", { runtime: formatDuration(runtime) })
+            : isNum(s.powerW)
+              ? t("Dish power draw")
+              : undefined,
+        missingHint: tk("No power reading from the dish yet"),
+        spark: <Sparkline values={series((x) => x.powerW)} height={18} className="text-chart-1" />,
+      },
+    });
+  }
+  const tileCount = tiles.length;
+
+  const hasSky = Boolean(skySlot);
+  // Only for dishes known to have no motors: "unknown" may be motorized and must not be told to rotate.
+  const hasAlign = capabilities?.actuators === "no" && alignmentGuidance(s.alignment) !== null;
+  const band3 = bandThree(hasSky, hasAlign);
+  // Status cards stack vertically next to the sky/alignment cards, or sit in a row when they span the width.
+  const statusItem = "min-w-0";
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-2 empty:hidden">
@@ -230,19 +362,19 @@ export function LiveView({
         )}
       </div>
 
-      {/* Dashboard grid: 1 col (tray), 2 ≥ 768 px, 3 ≥ 1200 px, 4 ≥ 1600 px. Dense flow fills gaps. */}
-      <div
-        className={cn(
-          "grid grid-flow-row-dense grid-cols-1 items-start gap-3 md:grid-cols-2 dash3:grid-cols-3 dash4:grid-cols-4",
-          stale && "opacity-80",
-        )}
-      >
+      {/*
+        Dashboard bands. Every row is filled at 1 / 2 / 3 / 4 columns (≥ 768 / 1200 / 1600 px);
+        cards in a row stretch to the same height. DOM order = reading order (no CSS reordering).
+      */}
+      <div className={cn("flex flex-col gap-3", stale && "opacity-80")}>
+        {/* Band 1: throughput hero + readiness. */}
+        <div className="grid gap-3 md:grid-cols-[3fr_2fr] dash3:grid-cols-[2fr_1fr]">
         <Section
           title={t("Throughput")}
           aside={<span className="text-xs text-muted-foreground">{t("last 5 min")}</span>}
-          className="md:col-span-2"
+          className="flex h-full flex-col"
         >
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid flex-1 grid-cols-2 gap-4">
             <ThroughputReading
               label={t("Download")}
               icon={<ArrowDown />}
@@ -259,76 +391,9 @@ export function LiveView({
             />
           </div>
         </Section>
-
-        <div
-          className="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-2 md:col-span-2"
-          role="group"
-          aria-label={t("Connection quality")}
-        >
-          <MetricTile
-            label={t("Latency")}
-            icon={<Gauge />}
-            parts={formatMsParts(s.popPingLatencyMs)}
-            {...tile(latencyTone(s.popPingLatencyMs))}
-            spark={<Sparkline values={series((x) => x.popPingLatencyMs)} height={18} className="text-chart-1" />}
-          />
-          <MetricTile
-            label={t("Jitter")}
-            icon={<Activity />}
-            parts={formatMsParts(s.jitterMs)}
-            {...tile(jitterTone(s.jitterMs))}
-            missingHint={tk("Jitter appears after a few readings")}
-            spark={<Sparkline values={series((x) => x.jitterMs)} height={18} className="text-chart-1" />}
-          />
-          <MetricTile
-            label={t("Drop rate")}
-            icon={<Waves />}
-            parts={formatPercentParts(s.popPingDropRate)}
-            {...tile(dropTone(s.popPingDropRate))}
-            spark={
-              <Sparkline values={series((x) => x.popPingDropRate)} height={18} zeroBased className="text-chart-1" />
-            }
-          />
-          <MetricTile
-            label={t("Signal")}
-            icon={<Radio />}
-            parts={formatPercentParts(s.signalQuality, 0)}
-            {...tile(signalNote(s))}
-            missingHint={tk("This firmware does not report a numeric signal quality")}
-          />
-          <MetricTile
-            label={t("Obstruction")}
-            icon={<TreePine />}
-            parts={formatPercentParts(s.obstruction.fractionObstructed)}
-            {...tile(obstructionNote(s))}
-          />
-          <MetricTile
-            label={t("Uptime")}
-            icon={<Clock />}
-            parts={{ value: formatDuration(s.uptimeS), unit: "" }}
-            note={isNum(s.uptimeS) ? t("Since last reboot") : undefined}
-          />
-          {showPower && (
-            <MetricTile
-              label={t("Power")}
-              icon={<PlugZap />}
-              parts={formatWattsParts(s.powerW)}
-              note={
-                runtime !== null
-                  ? t("≈ {{runtime}} on battery", { runtime: formatDuration(runtime) })
-                  : isNum(s.powerW)
-                    ? t("Dish power draw")
-                    : undefined
-              }
-              missingHint={tk("No power reading from the dish yet")}
-              spark={<Sparkline values={series((x) => x.powerW)} height={18} className="text-chart-1" />}
-            />
-          )}
-        </div>
-
-        <Section title={t("Ready for")} id="readiness">
+        <Section title={t("Ready for")} id="readiness" className="h-full">
           {s.readiness ? (
-            <ul className="grid grid-cols-1 gap-1.5 min-[420px]:grid-cols-3 md:grid-cols-1 dash4:grid-cols-1">
+            <ul className="grid grid-cols-1 gap-1.5 min-[420px]:grid-cols-3 md:grid-cols-1">
               {READINESS.map((r) => {
                 const level = LEVEL[s.readiness![r.key]];
                 return (
@@ -355,8 +420,31 @@ export function LiveView({
             <p className="text-sm text-muted-foreground">{t("Appears after a few readings.")}</p>
           )}
         </Section>
+        </div>
 
-        <Section title={t("Bandwidth")}>
+        {/* Band 2: metric tiles, spans chosen so the last row is always full. */}
+        <div
+          className={cn("grid grid-cols-2 gap-2 md:grid-cols-4", WIDE_COLS[tileCount])}
+          role="group"
+          aria-label={t("Connection quality")}
+        >
+          {tiles.map((tile, i) => (
+            <MetricTile key={tile.key} {...tile.props} className={cn("h-full", lastTileSpan(i, tileCount))} />
+          ))}
+        </div>
+
+        {/* Band 3: sky + alignment + a stacked column of small status cards. */}
+        <div className={cn("grid gap-3", band3.grid)}>
+          {skySlot && <div className={cn("min-w-0 [&>section]:h-full", band3.sky)}>{skySlot}</div>}
+          {hasAlign && (
+            <div className={cn("min-w-0", band3.align)}>
+          <Section title={t("Alignment")} id="alignment" className="h-full">
+            <AlignmentHelper alignment={s.alignment} onStartGuided={onStartGuidedAlignment} />
+          </Section>
+            </div>
+          )}
+          <div className={cn("min-w-0", band3.status)}>
+        <Section title={t("Bandwidth")} className={statusItem}>
           {restricted ? (
             <div className="flex gap-2.5">
               <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
@@ -375,8 +463,8 @@ export function LiveView({
             </p>
           )}
         </Section>
-
         <Section
+          className={statusItem}
           title={t("Alerts")}
           aside={
             s.alerts.length > 0 ? (
@@ -408,17 +496,7 @@ export function LiveView({
             </ul>
           )}
         </Section>
-
-        {skySlot && <div className="min-w-0 dash3:row-span-2">{skySlot}</div>}
-
-        {/* Only for dishes known to have no motors: "unknown" may be motorized and must not be told to rotate. */}
-        {capabilities?.actuators === "no" && alignmentGuidance(s.alignment) && (
-          <Section title={t("Alignment")} id="alignment">
-            <AlignmentHelper alignment={s.alignment} onStartGuided={onStartGuidedAlignment} />
-          </Section>
-        )}
-
-        <Section title={t("Dish")}>
+        <Section title={t("Dish")} className={cn(statusItem, "flex-1")}>
           <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs">
             <Row label={t("Model")} value={dishModelName(capabilities)} />
             <Row label={t("Firmware")} value={capabilities?.softwareVersion} mono />
@@ -443,6 +521,8 @@ export function LiveView({
             />
           </dl>
         </Section>
+          </div>
+        </div>
       </div>
 
       <p className="text-right text-[0.6875rem] text-muted-foreground" aria-live="off">
@@ -466,7 +546,7 @@ function ThroughputReading({
   colorClass: string;
 }) {
   return (
-    <div role="group" aria-label={label} className="flex min-w-0 flex-col gap-1.5">
+    <div role="group" aria-label={label} className="flex h-full min-w-0 flex-col gap-1.5">
       <div className="flex items-center gap-1.5">
         <span aria-hidden className={cn("[&_svg]:size-3.5", colorClass)}>
           {icon}
@@ -474,7 +554,7 @@ function ThroughputReading({
         <span className="eyebrow">{label}</span>
       </div>
       <Reading parts={formatBpsParts(bps)} size="lg" />
-      <Sparkline values={values} height={32} zeroBased area className={colorClass} />
+      <Sparkline values={values} height={32} zeroBased area stretch className={colorClass} />
     </div>
   );
 }

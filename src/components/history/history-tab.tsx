@@ -101,6 +101,7 @@ export function HistoryTab() {
   const rows = useMemo(() => bucketHistory(points, fromMs, toMs), [points, fromMs, toMs]);
   const summary = useMemo(() => summarizeHistory(points, events, range), [points, events, range]);
   const hasPower = Boolean(caps?.hasPowerTelemetry) && points.some((p) => isNum(p.powerAvgW));
+  const hasEnergy = Boolean(caps?.hasPowerTelemetry);
 
   const refresh = () => {
     history.refresh();
@@ -164,7 +165,13 @@ export function HistoryTab() {
           </p>
         )}
 
-        <div className="grid gap-3 md:grid-cols-2 dash3:grid-cols-3 dash4:grid-cols-4">
+        {/* 4 charts: 2×2, then one row of 4 from 1600 px. 3 charts: last spans 2 at 768, one row of 3 from 1200. */}
+        <div
+          className={cn(
+            "grid gap-3 md:grid-cols-2 [&>*]:h-full",
+            hasPower ? "dash4:grid-cols-4" : "dash3:grid-cols-3 [&>*:last-child]:md:col-span-2 [&>*:last-child]:dash3:col-span-1",
+          )}
+        >
           <ChartCard>
             <TimeSeriesChart
               title={t("Ping latency")}
@@ -268,15 +275,23 @@ export function HistoryTab() {
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Summary cards: 1 col tray, 2 ≥ 768, 3 ≥ 1200, 4 ≥ 1600. */}
-      <div className="grid grid-flow-row-dense gap-3 md:grid-cols-2 md:items-start dash3:grid-cols-3 dash4:grid-cols-4">
-        <UptimeCard data={uptime.data} error={uptime.error} />
-        <DataUsageCard data={usage.data} error={usage.error} />
-        {caps?.hasPowerTelemetry && <EnergyCard battery={settings?.battery ?? null} />}
-        <div className="min-w-0 md:col-span-2">
+      {/*
+        Summary cards, every row full: 2 cols ≥ 768 (Uptime+Energy stacked | Data usage),
+        3 cols ≥ 1200 (Uptime | Energy | Data usage), 4 cols ≥ 1600 (stack | Data usage | Best times ×2).
+        The stack wrapper uses display: contents at 3 columns, so reading order never changes.
+      */}
+      <div className="grid gap-3 md:grid-cols-2 dash3:grid-cols-3 dash4:grid-cols-4">
+        <div className="flex min-w-0 flex-col gap-3 dash3:contents dash4:flex [&>section]:flex-1">
+          <UptimeCard data={uptime.data} error={uptime.error} />
+          {hasEnergy && <EnergyCard battery={settings?.battery ?? null} />}
+        </div>
+        <div className={cn("min-w-0 [&>section]:h-full", !hasEnergy && "dash3:col-span-2 dash4:col-span-1")}>
+          <DataUsageCard data={usage.data} error={usage.error} />
+        </div>
+        <div className="min-w-0 md:col-span-2 dash3:col-span-3 dash4:col-span-2 [&>section]:h-full">
           <BestTimesCard />
         </div>
-        <div className="min-w-0 md:col-span-2">
+        <div className="min-w-0 md:col-span-2 dash3:col-span-3 dash4:col-span-4">
           <LocationsCard />
         </div>
       </div>

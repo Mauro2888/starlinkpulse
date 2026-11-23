@@ -111,7 +111,7 @@ export function MetricTile({ label, icon, parts, note, tone, spark, missingHint,
           <span className="truncate">{note}</span>
         </div>
       )}
-      {spark}
+      {spark && <div className="mt-auto">{spark}</div>}
     </div>
   );
 }

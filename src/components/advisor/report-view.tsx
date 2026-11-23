@@ -80,6 +80,8 @@ export function SourceBadge({ source }: { source: ReportSource }) {
 }
 
 interface Props {
+  /** Full-width layout: findings flow into two columns from 1200 px. */
+  wide?: boolean;
   /** Shows an "Open Sky view" link on obstruction findings. */
   onOpenSkyView?: () => void;
   report: AiReport;
@@ -87,7 +89,7 @@ interface Props {
   rerunDisabled?: boolean;
 }
 
-export function ReportView({ report, onRerun, rerunDisabled, onOpenSkyView }: Props) {
+export function ReportView({ report, onRerun, rerunDisabled, onOpenSkyView, wide = false }: Props) {
   const groups = groupFindings(report.findings);
   const { t } = useTranslation();
   const generated = formatDateTime(report.generatedAtMs);
@@ -121,7 +123,13 @@ export function ReportView({ report, onRerun, rerunDisabled, onOpenSkyView }: Pr
             {t(SEVERITY_LABELS[g.severity])}
             <span className="num">· {g.findings.length}</span>
           </h3>
-          <ul className="flex flex-col gap-2">
+          <ul
+            className={cn(
+              "flex flex-col gap-2",
+              // Two columns of equal-height cards; an odd last card spans both so the row is full.
+              wide && "dash3:grid dash3:grid-cols-2 dash3:[&>li:last-child:nth-child(odd)]:col-span-2 [&>li>div]:h-full",
+            )}
+          >
             {g.findings.map((f, i) => (
               <li key={`${f.title}-${i}`}>
                 <FindingCard finding={f} onOpenSkyView={onOpenSkyView} />

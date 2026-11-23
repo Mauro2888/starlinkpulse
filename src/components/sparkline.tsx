@@ -10,6 +10,8 @@ interface SparklineProps {
   zeroBased?: boolean;
   /** Fill under the line with a faint wash. */
   area?: boolean;
+  /** Grow to fill a flex column (height becomes the minimum). */
+  stretch?: boolean;
 }
 
 const W = 100;
@@ -18,11 +20,11 @@ const W = 100;
  * Lightweight SVG sparkline (decorative: the adjacent number is the readout).
  * Nulls break the line. Color comes from `currentColor`.
  */
-export function Sparkline({ values, className, height = 28, zeroBased = false, area = false }: SparklineProps) {
+export function Sparkline({ values, className, height = 28, zeroBased = false, area = false, stretch = false }: SparklineProps) {
   const gradId = `spark${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const nums = values.filter(isNum);
   if (nums.length < 2) {
-    return <div aria-hidden className={cn("w-full", className)} style={{ height }} />;
+    return <div aria-hidden className={cn("w-full", stretch && "flex-1", className)} style={{ minHeight: height }} />;
   }
   let min = zeroBased ? 0 : Math.min(...nums);
   let max = Math.max(...nums);
@@ -49,11 +51,11 @@ export function Sparkline({ values, className, height = 28, zeroBased = false, a
   const toPath = (pts: [number, number][]) =>
     pts.map(([px, py], i) => `${i ? "L" : "M"}${px.toFixed(2)} ${py.toFixed(2)}`).join("");
 
-  return (
+  const svg = (
     <svg
       aria-hidden
-      className={cn("block w-full overflow-visible", className)}
-      height={h}
+      className={cn("block w-full overflow-visible", stretch && "absolute inset-0 h-full", !stretch && className)}
+      height={stretch ? undefined : h}
       viewBox={`0 0 ${W} ${h}`}
       preserveAspectRatio="none"
     >
@@ -89,5 +91,13 @@ export function Sparkline({ values, className, height = 28, zeroBased = false, a
         />
       ))}
     </svg>
+  );
+  // Stretch: the SVG is absolutely positioned, so it never adds height; it only fills space the row already has.
+  return stretch ? (
+    <div className={cn("relative w-full flex-1", className)} style={{ minHeight: h }}>
+      {svg}
+    </div>
+  ) : (
+    svg
   );
 }

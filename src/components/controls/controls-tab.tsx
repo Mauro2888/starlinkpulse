@@ -69,8 +69,9 @@ export function ControlsTab() {
   };
 
   return (
-    <div className="grid gap-3 md:grid-cols-2 md:items-start dash3:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-      <div className="flex min-w-0 flex-col gap-3">
+    // Both columns stretch to the same height; the last card on the left grows to fill.
+    <div className="grid gap-3 md:grid-cols-2 dash3:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+      <div className="flex min-w-0 flex-col gap-3 [&>section:last-child]:flex-1">
         <DishActions
           capabilities={caps}
           readOnly={settings?.readOnly ?? true}
@@ -103,7 +104,7 @@ export function ControlsTab() {
         )}
         <ExportCard />
       </div>
-      <div className="min-w-0">
+      <div className="min-w-0 [&>section]:h-full">
         {settings ? (
           <SettingsForm
             settings={settings}

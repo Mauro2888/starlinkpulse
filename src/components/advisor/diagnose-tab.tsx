@@ -167,6 +167,11 @@ export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings, onOpen
 
   const aiBusy = aiPhase === "preparing" || aiPhase === "explaining";
 
+  const showAiSection = aiOn || aiReport !== null;
+  // Two columns only when the AI side has real content; a collapsed toggle goes full width under the rules.
+  const sideBySide =
+    showAiSection && (aiPhase === "explaining" || aiError !== null || (aiReport !== null && aiOpen));
+
   let main;
   if (diagnosing && !rules) {
     main = (
@@ -203,7 +208,15 @@ export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings, onOpen
       />
     );
   } else if (rules) {
-    main = <ReportView report={rules} onRerun={diagnose} rerunDisabled={diagnosing} onOpenSkyView={onOpenSkyView} />;
+    main = (
+      <ReportView
+        report={rules}
+        onRerun={diagnose}
+        rerunDisabled={diagnosing}
+        onOpenSkyView={onOpenSkyView}
+        wide={!sideBySide}
+      />
+    );
   } else {
     main = (
       <StatePanel
@@ -220,10 +233,9 @@ export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings, onOpen
     );
   }
 
-  const showAiSection = aiOn || aiReport !== null;
 
   return (
-    <div className={cn("mx-auto flex w-full flex-col gap-3", showAiSection ? "max-w-2xl dash3:max-w-none" : "max-w-3xl")}>
+    <div className="flex w-full flex-col gap-3">
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Button size="sm" variant={aiOn ? "outline" : "default"} onClick={diagnose} disabled={diagnosing}>
           {diagnosing ? <Loader2 className="animate-spin" aria-hidden /> : <ListChecks aria-hidden />}
@@ -250,7 +262,7 @@ export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings, onOpen
       )}
 
       {/* Rules report and AI explanation side by side from 1200 px. */}
-      <div className={cn("grid gap-3", showAiSection && "dash3:grid-cols-2 dash3:items-start")}>
+      <div className={cn("grid gap-3", sideBySide && "dash3:grid-cols-2 dash3:items-start")}>
       <div ref={bodyRef} tabIndex={-1} className="min-w-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring">
         {main}
       </div>
