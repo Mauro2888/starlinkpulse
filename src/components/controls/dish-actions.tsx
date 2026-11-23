@@ -181,7 +181,7 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun }: DishActio
                     id="snow-melt-trigger"
                     size="sm"
                     aria-labelledby="snow-melt-new-label snow-melt-trigger"
-                    className="w-36"
+                    className="w-auto min-w-36"
                   >
                     <SelectValue />
                   </SelectTrigger>
