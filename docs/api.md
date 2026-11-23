@@ -44,8 +44,6 @@ All commands are async and return `Result<T, CommandError>`; arguments are camel
 | `get_wifi_devices` | – | `WifiDevices` (`available:false` + empty list without a Starlink router; router itself excluded; poor signal first, then `downMbps` desc) | 7 |
 | `get_support_report` | – | `string` (anonymized Markdown, UI language) | 7 |
 | `export_support_report` | – | `string \| null` (native save dialog, `starlinkpulse-support-YYYYMMDD-HHMM.md`; null if cancelled) | 7 |
-| `get_lan_dashboard_info` | – | `LanDashboardInfo` (`urls`/`qrSvg` only while running; `error` e.g. port in use) | 7 |
-| `regenerate_lan_token` | – | `Settings` (new access code; old links/QR stop working) | 7 |
 
 ## Events (backend → frontend)
 
@@ -60,8 +58,7 @@ All commands are async and return `Result<T, CommandError>`; arguments are camel
 - Write commands are rejected with `read_only` when `settings.readOnly` is true (default) and with `unsupported` when capabilities say so.
 - During development write commands are exercised only against `MockClient`.
 - No device IDs, MACs or GPS ever cross this boundary. Wi-Fi client names cross it only in
-  `get_wifi_devices` (live UI): they are never logged, persisted, exported, sent to the AI or
-  served by the LAN dashboard.
+  `get_wifi_devices` (live UI): they are never logged, persisted, exported or sent to the AI.
 
 ## Phase 4 – Anthropic API call (backend)
 - `POST https://api.anthropic.com/v1/messages`, headers `x-api-key: <keyring>`, `anthropic-version: 2026-10-21`, `content-type: application/json`.
@@ -98,15 +95,3 @@ All commands are async and return `Result<T, CommandError>`; arguments are camel
   last-24 h latency avg/p95, ping loss, obstruction, throttled minutes, active alerts, outages of
   the last 48 h (totals by cause + newest 50 rows), rule-engine findings, Wi-Fi counts per band /
   quality and weakest dBm (never names). Footer states that no IDs/location/MAC/names are included.
-- **LAN dashboard:** `settings.lanDashboard = { enabled: false, port: 8787 (1024–65535), token }`.
-  The token (6 chars from `abcdefghjkmnpqrstuvwxyz23456789`) is generated at first start;
-  `update_settings` with an empty token keeps the current one. Server: HTTP/1.1 on
-  `0.0.0.0:<port>`, (re)started at startup and after `update_settings`; bind failures go to
-  `LanDashboardInfo.error`. Routes (GET only, others 405): `/?k=TOKEN` (self-contained ES5 page,
-  polls every 3 s), `/api/status?k=TOKEN` → `{ nowMs, lang, state, simulated, downMbps, upMbps,
-  latencyMs, lossPct, obstructionPct, jitterMs, readiness, uptime24hPct, lastOutage:{startMs,
-  durationS, cause} | null, alerts }`. The code is checked first (constant time) → 403 on mismatch
-  or when disabled; 404 for unknown paths. Headers: `Cache-Control: no-store`,
-  `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, restrictive CSP,
-  `X-Frame-Options: DENY`. Max 32 concurrent connections, 10 s header timeout. No write
-  commands, no device names/IDs/GPS; the code and URLs are never logged.

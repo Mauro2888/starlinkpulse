@@ -12,7 +12,6 @@ import type {
   DishCapabilities,
   DishEvent,
   HistoryPoint,
-  LanDashboardInfo,
   LocationStats,
   ObstructionMap,
   Settings,
@@ -66,8 +65,6 @@ export interface CommandMap {
   get_wifi_devices: { args: void; result: WifiDevices };
   get_support_report: { args: void; result: string };
   export_support_report: { args: void; result: string | null };
-  get_lan_dashboard_info: { args: void; result: LanDashboardInfo };
-  regenerate_lan_token: { args: void; result: Settings };
 }
 
 /** Event name -> payload type. */
@@ -191,9 +188,6 @@ export const api = {
   getSupportReport: () => call("get_support_report"),
   /** Native save dialog; returns the saved path, or null if cancelled. */
   exportSupportReport: () => call("export_support_report"),
-  getLanDashboardInfo: () => call("get_lan_dashboard_info"),
-  /** New access code; returns the saved settings. */
-  regenerateLanToken: () => call("regenerate_lan_token"),
 } as const;
 
 export const events = {

@@ -55,7 +55,6 @@ pub struct AppState {
     /// When `wifi_clients` was last refreshed (Unix ms).
     pub wifi_updated_ms: RwLock<Option<i64>>,
     /// Read-only LAN dashboard server.
-    pub lan: tokio::sync::Mutex<crate::lan::LanServer>,
     /// History of the real dish (file-backed).
     pub db: Arc<Mutex<Db>>,
     /// History of the mock dish (in memory, never mixed with real data).
@@ -95,13 +94,7 @@ impl AppState {
     pub fn new(data_dir: &Path) -> Result<Self, AppError> {
         std::fs::create_dir_all(data_dir)?;
         let settings_path = data_dir.join(settings::SETTINGS_FILE);
-        let mut settings = settings::load(&settings_path);
-        if settings.lan_dashboard.token.is_empty() {
-            settings.lan_dashboard.token = crate::lan::generate_token();
-            if let Err(e) = settings::save(&settings_path, &settings) {
-                tracing::warn!(error = %e, "could not save the LAN dashboard access code");
-            }
-        }
+        let settings = settings::load(&settings_path);
         let db = Db::open(&data_dir.join("history.db"))?;
         let mut state = Self::build(
             Some(settings_path),
@@ -142,7 +135,6 @@ impl AppState {
             power_cache: RwLock::new(None),
             wifi_clients: RwLock::new(Vec::new()),
             wifi_updated_ms: RwLock::new(None),
-            lan: tokio::sync::Mutex::new(crate::lan::LanServer::default()),
             db: Arc::new(Mutex::new(db)),
             mock_db: Arc::new(Mutex::new(Db::open_in_memory()?)),
             mock_db_profile: Mutex::new(None),
@@ -266,12 +258,7 @@ impl AppState {
     }
 
     /// Validates, persists and applies new settings; triggers a reconnect when needed.
-    pub async fn update_settings(&self, mut new: Settings) -> Result<Settings, AppError> {
-        // An empty access code keeps the current one (it is only changed by
-        // `regenerate_lan_token`).
-        if new.lan_dashboard.token.is_empty() {
-            new.lan_dashboard.token = self.settings.read().await.lan_dashboard.token.clone();
-        }
+    pub async fn update_settings(&self, new: Settings) -> Result<Settings, AppError> {
         let new = settings::validate(new)?;
         // Apply launch-at-login first: if the OS refuses, nothing is saved.
         let old_login = self.settings.read().await.launch_at_login;

@@ -357,42 +357,6 @@ pub struct Settings {
     pub local_ai_url: String,
     pub local_ai_kind: LocalAiKind,
     pub local_ai_model: String,
-    /// Read-only LAN dashboard for phones / TVs. Default off.
-    pub lan_dashboard: LanDashboardSettings,
-}
-
-/// Read-only LAN dashboard settings.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-pub struct LanDashboardSettings {
-    pub enabled: bool,
-    pub port: u16,
-    /// Short access code, part of the dashboard URL. Empty until generated at startup.
-    pub token: String,
-}
-
-impl Default for LanDashboardSettings {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            port: 8787,
-            token: String::new(),
-        }
-    }
-}
-
-/// State of the LAN dashboard server (`get_lan_dashboard_info`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct LanDashboardInfo {
-    pub running: bool,
-    pub port: u16,
-    /// One URL per non-loopback IPv4 address (contain the access code; UI only).
-    pub urls: Vec<String>,
-    /// SVG QR code of the first URL.
-    pub qr_svg: Option<String>,
-    /// E.g. bind failure (port in use).
-    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -547,7 +511,6 @@ impl Default for Settings {
             local_ai_url: "http://localhost:11434".into(),
             local_ai_kind: LocalAiKind::Ollama,
             local_ai_model: String::new(),
-            lan_dashboard: LanDashboardSettings::default(),
         }
     }
 }

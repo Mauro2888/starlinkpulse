@@ -44,13 +44,6 @@ tauri-plugin-autostart = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-opener = "2"
 sys-locale = "0.3"
-hyper = { version = "1", features = ["http1", "server"] }
-hyper-util = { version = "0.1", features = ["tokio", "server"] }
-http-body-util = "0.1"
-bytes = "1"
-qrcode = { version = "0.14", default-features = false, features = ["svg"] }
-if-addrs = "0.13"
-getrandom = "0.3"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

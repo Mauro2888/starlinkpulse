@@ -6,7 +6,6 @@ import type {
   AiProvider,
   AppLanguage,
   BatteryConfig,
-  LanDashboardSettings,
   LocalAiKind,
   MockMode,
   MockProfile,
@@ -36,8 +35,6 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Section } from "@/components/state-panels";
 import { AppUpdates } from "@/components/controls/app-updates";
-import { LanDashboardStatus } from "@/components/controls/lan-dashboard";
-import { useRefreshAll } from "@/hooks/use-pulse";
 
 interface Props {
   settings: Settings;
@@ -307,13 +304,6 @@ export function SettingsForm({ settings, onSave, readOnlySwitchId = "read-only-s
             setDraft((d) => ({ ...d, battery: b }));
             setErrors((e) => ({ ...e, battery: undefined }));
           }}
-        />
-
-        <LanFields
-          value={draft.lanDashboard ?? DEFAULT_LAN}
-          saved={settings.lanDashboard ?? DEFAULT_LAN}
-          error={errors.lanDashboard}
-          onChange={(v) => set("lanDashboard", v)}
         />
 
         <div className="flex items-center justify-end gap-2 border-t border-border pt-3 dash3:col-span-2">
@@ -970,59 +960,3 @@ function BatteryFields({
   );
 }
 
-const DEFAULT_LAN: LanDashboardSettings = { enabled: false, port: 8787, token: "" };
-
-/** Read-only LAN dashboard for phones and TVs (opt-in). */
-function LanFields({
-  value,
-  saved,
-  error,
-  onChange,
-}: {
-  value: LanDashboardSettings;
-  saved: LanDashboardSettings;
-  error?: string;
-  onChange: (v: LanDashboardSettings) => void;
-}) {
-  const { t } = useTranslation();
-  const refreshAll = useRefreshAll();
-  return (
-    <fieldset className="flex flex-col gap-3 border-t border-border pt-4">
-      <legend className="eyebrow mb-2">{t("Dashboard on phone / TV")}</legend>
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <Label htmlFor="lan-switch" className="text-sm">
-            {t("Show a read-only dashboard on your home network")}
-          </Label>
-          <p id="lan-desc" className="mt-0.5 text-xs text-muted-foreground">
-            {t("Open it in the browser of a phone or TV. No commands, no device names.")}
-          </p>
-        </div>
-        <Switch
-          id="lan-switch"
-          aria-describedby="lan-desc"
-          checked={value.enabled}
-          onCheckedChange={(enabled) => onChange({ ...value, enabled })}
-        />
-      </div>
-      {value.enabled && (
-        <Field label={t("Port")} error={error} hint={t("1024–65535. Save to apply.")}>
-          {(p) => (
-            <Input
-              {...p}
-              type="number"
-              min={1024}
-              max={65535}
-              step={1}
-              inputMode="numeric"
-              value={Number.isFinite(value.port) ? value.port : ""}
-              onChange={(e) => onChange({ ...value, port: e.target.value === "" ? NaN : Number(e.target.value) })}
-              className="num sm:w-32"
-            />
-          )}
-        </Field>
-      )}
-      {saved.enabled && <LanDashboardStatus saved={saved} onTokenChanged={refreshAll} />}
-    </fieldset>
-  );
-}

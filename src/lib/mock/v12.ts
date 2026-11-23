@@ -1,5 +1,5 @@
 // Mock data for v1.2: Wi-Fi clients, support report, LAN dashboard.
-import type { LanDashboardInfo, Settings, WifiDevice, WifiDevices } from "@/types/models";
+import type { WifiDevice, WifiDevices } from "@/types/models";
 import type { ProfileSpec } from "@/lib/mock/profiles";
 
 const BASE: WifiDevice[] = [
@@ -50,17 +50,3 @@ ${p.capabilities.hasRouter ? "- 6 clients (5 GHz: 5, 2.4 GHz: 1), 1 with weak si
 `;
 }
 
-/** Tiny placeholder QR-like SVG (not scannable). */
-const QR_SVG =
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 7 7" shape-rendering="crispEdges"><rect width="7" height="7" fill="#fff"/><path d="M0 0h3v3H0zM4 0h3v3H4zM0 4h3v3H0zM4 4h1v1H4zM6 6h1v1H6zM5 5h1v1H5z" fill="#000"/></svg>';
-
-export function mockLanInfo(s: Settings["lanDashboard"]): LanDashboardInfo {
-  if (!s.enabled) return { running: false, port: s.port, urls: [], qrSvg: null, error: null };
-  if (s.port === 80) return { running: false, port: s.port, urls: [], qrSvg: null, error: `Port ${s.port} is already in use.` };
-  return { running: true, port: s.port, urls: [`http://192.168.1.50:${s.port}/?k=${s.token}`], qrSvg: QR_SVG, error: null };
-}
-
-export function mockToken(): string {
-  const abc = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-  return Array.from({ length: 6 }, () => abc[Math.floor(Math.random() * abc.length)]).join("");
-}

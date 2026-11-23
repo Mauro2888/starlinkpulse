@@ -227,9 +227,7 @@ pub async fn update_settings(
     state: State<'_, Arc<AppState>>,
     settings: Settings,
 ) -> CmdResult<Settings> {
-    let saved = state.update_settings(settings).await?;
-    crate::lan::apply(state.inner()).await;
-    Ok(saved)
+    Ok(state.update_settings(settings).await?)
 }
 
 #[tauri::command]
@@ -644,25 +642,6 @@ pub async fn export_support_report(
         .map_err(AppError::from)?;
     tracing::info!("support report exported");
     Ok(Some(path.display().to_string()))
-}
-
-#[tauri::command]
-pub async fn get_lan_dashboard_info(
-    state: State<'_, Arc<AppState>>,
-) -> CmdResult<crate::models::LanDashboardInfo> {
-    Ok(crate::lan::info(&state).await)
-}
-
-/// New LAN dashboard access code (old links and QR codes stop working).
-pub async fn regenerate_lan_token_impl(state: &AppState) -> Result<Settings, AppError> {
-    let mut s = state.settings.read().await.clone();
-    s.lan_dashboard.token = crate::lan::generate_token();
-    state.update_settings(s).await
-}
-
-#[tauri::command]
-pub async fn regenerate_lan_token(state: State<'_, Arc<AppState>>) -> CmdResult<Settings> {
-    Ok(regenerate_lan_token_impl(&state).await?)
 }
 
 #[cfg(test)]
@@ -1080,33 +1059,15 @@ mod tests {
         assert_eq!(w.devices.len(), 6, "router itself excluded");
         assert!(w.devices.iter().all(|d| d.name.is_some()));
         assert_eq!(w.devices[0].quality, Some(crate::models::WifiQuality::Poor));
-        // Names reach the live UI only: not the AI payload, the report or the LAN status.
+        // Names reach the live UI only: not the AI payload, or the report.
         let names: Vec<String> = w.devices.iter().filter_map(|d| d.name.clone()).collect();
         let summary =
             serde_json::to_string(&crate::ai::current_summary(&state).await.unwrap()).unwrap();
         let report = crate::support_report::build(&state).await.unwrap();
-        let lan = serde_json::to_string(&crate::lan::status(&state, None, None).await).unwrap();
         for n in &names {
             assert!(!summary.contains(n.as_str()), "{n} in AI payload");
             assert!(!report.contains(n.as_str()), "{n} in report");
-            assert!(!lan.contains(n.as_str()), "{n} in LAN status");
         }
         assert!(report.contains("Wi-Fi") && report.contains("Devices: 6"));
-    }
-
-    #[tokio::test]
-    async fn lan_token_regeneration_and_preservation() {
-        let state = AppState::in_memory(Settings::default()).unwrap();
-        let s1 = regenerate_lan_token_impl(&state).await.unwrap();
-        assert!(crate::lan::is_valid_token(&s1.lan_dashboard.token));
-        // Saving settings with an empty code keeps the current one.
-        let mut edit = s1.clone();
-        edit.lan_dashboard.token.clear();
-        edit.lan_dashboard.enabled = true;
-        let s2 = state.update_settings(edit).await.unwrap();
-        assert_eq!(s2.lan_dashboard.token, s1.lan_dashboard.token);
-        assert!(s2.lan_dashboard.enabled);
-        let s3 = regenerate_lan_token_impl(&state).await.unwrap();
-        assert_ne!(s3.lan_dashboard.token, s1.lan_dashboard.token);
     }
 }

@@ -43,10 +43,6 @@ export function validateSettings(s: Settings): SettingsErrors {
       Number.isFinite(b.usableFraction) && b.usableFraction >= 0.1 && b.usableFraction <= 1;
     if (!ok) e.battery = t("Check the battery values: capacity and voltage above 0, usable between 10 and 100 %.");
   }
-  const lan = s.lanDashboard;
-  if (lan?.enabled && !(Number.isInteger(lan.port) && lan.port >= 1024 && lan.port <= 65535)) {
-    e.lanDashboard = t("Use a port between 1024 and 65535.");
-  }
   const { quietStartHour: qs, quietEndHour: qe } = s.notifications;
   if ((qs === null) !== (qe === null)) e.quietHours = t("Set both a start and an end, or turn quiet hours off.");
   else if (qs !== null && qs === qe) e.quietHours = t("Start and end must be different hours.");
