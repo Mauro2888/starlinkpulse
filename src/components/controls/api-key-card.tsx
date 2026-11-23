@@ -14,7 +14,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Section } from "@/components/state-panels";
+import { Group } from "@/components/controls/settings-ui";
 
 interface Props {
   hasKey: boolean | null;
@@ -49,8 +49,8 @@ export function ApiKeyCard({ hasKey, error, onSave, onDelete }: Props) {
   };
 
   return (
-    <Section title={t("Anthropic API key")} id="api-key">
-      <div className="flex flex-col gap-3">
+    <Group title={t("Anthropic API key")} id="api-key">
+      <div className="flex flex-col gap-3 px-4 py-3">
         <p className="text-xs leading-relaxed text-muted-foreground">
           {t("Used only when you ask Claude to explain a diagnosis. Stored in your system keychain, never shown again.")}
         </p>
@@ -131,6 +131,6 @@ export function ApiKeyCard({ hasKey, error, onSave, onDelete }: Props) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Section>
+    </Group>
   );
 }

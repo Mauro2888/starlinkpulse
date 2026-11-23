@@ -11,6 +11,7 @@ import { PulseProvider } from "@/state/pulse-context";
 import { useCapabilities, useConnection, useSettings } from "@/hooks/use-pulse";
 import { AppHeader } from "@/components/app-header";
 import { LiveTab } from "@/components/live/live-tab";
+import { rememberControlsSection } from "@/lib/settings";
 import { ControlsTab } from "@/components/controls/controls-tab";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -122,6 +123,7 @@ function Dashboard() {
           <Suspense fallback={<Skeleton className="h-64 rounded-xl" />}>
             <DiagnosePanel
               onOpenApiKey={() => {
+                rememberControlsSection("ai");
                 setTab("controls");
                 focusLater("api-key", "api-key-input");
               }}
@@ -130,6 +132,7 @@ function Dashboard() {
                 focusLater("sky-view");
               }}
               onOpenAiSettings={() => {
+                rememberControlsSection("ai");
                 setTab("controls");
                 focusLater("ai-settings", "ai-provider-off");
               }}

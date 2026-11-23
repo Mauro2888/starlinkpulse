@@ -15,7 +15,8 @@ import {
 } from "@/hooks/use-pulse";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Section, StatePanel } from "@/components/state-panels";
+import { StatePanel } from "@/components/state-panels";
+import { Group, Row } from "@/components/controls/settings-ui";
 import {
   DishActions,
   SNOW_MELT_LABELS,
@@ -62,74 +63,71 @@ export function ControlsTab() {
   const { settings, error, save } = useSettings();
   const key = useApiKey();
 
-  const focusReadOnly = () => {
-    const el = document.getElementById(READ_ONLY_SWITCH_ID);
-    el?.scrollIntoView({ behavior: "smooth", block: "center" });
-    el?.focus();
-  };
+  const dish = (
+    <>
+      <DishActions
+        capabilities={caps}
+        readOnly={settings?.readOnly ?? true}
+        linkUp={isLinkUp(connection?.state)}
+        onRun={runAction}
+      />
+      <ExportCard />
+    </>
+  );
 
+  const aiExtra =
+    settings?.aiProvider === "claude" ? (
+      <ApiKeyCard
+        hasKey={key.hasKey}
+        error={key.error?.message ?? null}
+        onSave={async (k) => {
+          try {
+            await key.save(k);
+            toastSuccess(tr("API key saved"));
+          } catch (e) {
+            toastError(e, tr("Could not save key"));
+            throw e;
+          }
+        }}
+        onDelete={async () => {
+          try {
+            await key.remove();
+            toastSuccess(tr("API key deleted"));
+          } catch (e) {
+            toastError(e, tr("Could not delete key"));
+          }
+        }}
+      />
+    ) : null;
+
+  if (settings) {
+    return (
+      <SettingsForm
+        settings={settings}
+        readOnlySwitchId={READ_ONLY_SWITCH_ID}
+        dish={dish}
+        aiExtra={aiExtra}
+        onSave={async (next) => {
+          try {
+            await save(next);
+            toastSuccess(tr("Settings saved"));
+          } catch (e) {
+            toastError(e, tr("Settings not saved"));
+          }
+        }}
+      />
+    );
+  }
   return (
-    // Both columns stretch to the same height; the last card on the left grows to fill.
-    <div className="grid gap-3 md:grid-cols-2 dash3:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-      <div className="flex min-w-0 flex-col gap-3 [&>section:last-child]:flex-1">
-        <DishActions
-          capabilities={caps}
-          readOnly={settings?.readOnly ?? true}
-          linkUp={isLinkUp(connection?.state)}
-          onRun={runAction}
-          onOpenSettings={focusReadOnly}
-        />
-        {settings?.aiProvider === "claude" && (
-          <ApiKeyCard
-            hasKey={key.hasKey}
-            error={key.error?.message ?? null}
-            onSave={async (k) => {
-              try {
-                await key.save(k);
-                toastSuccess(tr("API key saved"));
-              } catch (e) {
-                toastError(e, tr("Could not save key"));
-                throw e;
-              }
-            }}
-            onDelete={async () => {
-              try {
-                await key.remove();
-                toastSuccess(tr("API key deleted"));
-              } catch (e) {
-                toastError(e, tr("Could not delete key"));
-              }
-            }}
-          />
-        )}
-        <ExportCard />
-      </div>
-      <div className="min-w-0 [&>section]:h-full">
-        {settings ? (
-          <SettingsForm
-            settings={settings}
-            readOnlySwitchId={READ_ONLY_SWITCH_ID}
-            onSave={async (next) => {
-              try {
-                await save(next);
-                toastSuccess(tr("Settings saved"));
-              } catch (e) {
-                toastError(e, tr("Settings not saved"));
-              }
-            }}
-          />
-        ) : error ? (
-          <StatePanel
-            tone="critical"
-            icon={<AlertCircle />}
-            title={tr("Settings unavailable")}
-          >
-            {error.message}
-          </StatePanel>
-        ) : (
-          <Skeleton className="h-96 rounded-xl" />
-        )}
-      </div>
+    <div className="flex max-w-[680px] flex-col gap-3">
+      {error ? (
+        <StatePanel tone="critical" icon={<AlertCircle />} title={tr("Settings unavailable")}>
+          {error.message}
+        </StatePanel>
+      ) : (
+        <Skeleton className="h-96 rounded-xl" />
+      )}
+      {dish}
     </div>
   );
 }
@@ -180,11 +178,8 @@ function ExportCard() {
     }
   };
   return (
-    <Section title={tr("Data")}>
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground">
-          {tr("Per-minute history of the last 48 hours as CSV.")}
-        </p>
+    <Group title={tr("Data")}>
+      <Row label={tr("Export history")} description={tr("Per-minute history of the last 48 hours as CSV.")}>
         <Button size="sm" variant="outline" onClick={exportCsv} disabled={busy}>
           {busy ? (
             <Loader2 className="animate-spin" aria-hidden />
@@ -193,7 +188,7 @@ function ExportCard() {
           )}
           {tr("Export CSV")}
         </Button>
-      </div>
-    </Section>
+      </Row>
+    </Group>
   );
 }

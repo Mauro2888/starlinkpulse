@@ -66,7 +66,7 @@ export function AppUpdates() {
 
 
   return (
-    <div className="flex flex-col gap-2 rounded-lg bg-muted/40 p-3 ring-1 ring-border">
+    <div className="flex flex-col gap-2 px-4 py-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm">
           {t("Version")} <span className="num">{version}</span>

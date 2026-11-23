@@ -16,7 +16,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Section } from "@/components/state-panels";
+import { Group, Row } from "@/components/controls/settings-ui";
 
 export type DishAction =
   | { type: "reboot" }
@@ -73,10 +73,9 @@ interface DishActionsProps {
   readOnly: boolean;
   linkUp: boolean;
   onRun: (action: DishAction) => Promise<void>;
-  onOpenSettings?: () => void;
 }
 
-export function DishActions({ capabilities, readOnly, linkUp, onRun, onOpenSettings }: DishActionsProps) {
+export function DishActions({ capabilities, readOnly, linkUp, onRun }: DishActionsProps) {
   const [pending, setPending] = useState<DishAction | null>(null);
   const [busy, setBusy] = useState<DishAction["type"] | null>(null);
   const currentSnow = capabilities?.snowMeltMode ?? null;
@@ -105,33 +104,22 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun, onOpenSetti
   const copy = pending ? confirmCopy(pending) : null;
 
   return (
-    <Section title={t("Dish controls")} id="dish-controls">
+    <>
+    <Group title={t("Dish controls")} id="dish-controls">
       {!caps ? (
-        <p className="text-sm text-muted-foreground">{t("Controls appear once the dish reports what it supports.")}</p>
+        <p className="px-4 py-3 text-sm text-muted-foreground">{t("Controls appear once the dish reports what it supports.")}</p>
       ) : none ? (
-        <p className="text-sm text-muted-foreground">{t("This dish does not expose any remote controls.")}</p>
+        <p className="px-4 py-3 text-sm text-muted-foreground">{t("This dish does not expose any remote controls.")}</p>
       ) : (
-        <div className="flex flex-col gap-3">
+        <>
           {lockReason && (
-            <div className="flex items-start gap-2.5 rounded-lg bg-muted/60 px-3 py-2 text-xs" role="note" id="controls-lock">
+            <div className="flex items-start gap-2.5 bg-muted/40 px-4 py-3 text-xs" role="note" id="controls-lock">
               <Lock className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden />
               <p className="flex-1 leading-relaxed text-muted-foreground">
                 {readOnly ? (
                   <>
                     <span className="font-medium text-foreground">{t("Read-only mode is on.")}</span>{" "}
                     {t("Controls are locked so nothing changes on the dish by accident.")}
-                    {onOpenSettings && (
-                      <>
-                        {" "}
-                        <button
-                          type="button"
-                          onClick={onOpenSettings}
-                          className="rounded-sm font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-2"
-                        >
-                          {t("Turn it off in Settings")}
-                        </button>
-                      </>
-                    )}
                   </>
                 ) : (
                   <>{t("Controls are available when the dish is connected.")}</>
@@ -140,62 +128,60 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun, onOpenSetti
             </div>
           )}
 
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {caps.canReboot && (
-              <ActionButton
-                icon={<Power />}
-                label={t("Reboot dish")}
-                hint={t("Restart the dish. About 2 minutes offline.")}
+          {caps.canStow && (
+            <>
+              <ActionRow
+                label={t("Stow")}
+                hint={t("Lay the dish flat for transport or storms.")}
                 disabled={disabled}
                 locked={Boolean(lockReason)}
-                busy={busy === "reboot"}
-                onClick={() => setPending({ type: "reboot" })}
+                busy={busy === "stow"}
+                icon={<ArrowDownToLine aria-hidden />}
+                onClick={() => setPending({ type: "stow" })}
               />
-            )}
-            {caps.canStow && (
-              <>
-                <ActionButton
-                  icon={<ArrowDownToLine />}
-                  label={t("Stow")}
-                  hint={t("Lay the dish flat for transport or storms.")}
-                  disabled={disabled}
-                  locked={Boolean(lockReason)}
-                  busy={busy === "stow"}
-                  onClick={() => setPending({ type: "stow" })}
-                />
-                <ActionButton
-                  icon={<ArrowUpFromLine />}
-                  label={t("Unstow")}
-                  hint={t("Return to working position.")}
-                  disabled={disabled}
-                  locked={Boolean(lockReason)}
-                  busy={busy === "unstow"}
-                  onClick={() => setPending({ type: "unstow" })}
-                />
-              </>
-            )}
-          </div>
+              <ActionRow
+                label={t("Unstow")}
+                hint={t("Return to working position.")}
+                disabled={disabled}
+                locked={Boolean(lockReason)}
+                busy={busy === "unstow"}
+                icon={<ArrowUpFromLine aria-hidden />}
+                onClick={() => setPending({ type: "unstow" })}
+              />
+            </>
+          )}
 
           {caps.canSetSnowMelt && (
-            <div className="flex flex-col gap-2 rounded-lg bg-muted/40 p-2.5 ring-1 ring-border">
-              <div className="flex items-center justify-between gap-2">
-                <span id="snow-melt-label" className="flex items-center gap-1.5 text-xs font-medium">
+            <Row
+              label={
+                <span id="snow-melt-label" className="flex items-center gap-1.5">
                   <Snowflake className="size-3.5 text-muted-foreground" aria-hidden /> {t("Snow melt")}
                 </span>
-                <span id="snow-melt-current" className="text-xs text-muted-foreground">
-                  {t("Current:")}{" "}
-                  <span className="font-medium text-foreground">
-                    {currentSnow ? t(SNOW_MELT_LABELS[currentSnow]) : t("unknown")}
+              }
+              description={
+                <>
+                  <span id="snow-melt-current">
+                    {t("Current:")}{" "}
+                    <span className="font-medium text-foreground">
+                      {currentSnow ? t(SNOW_MELT_LABELS[currentSnow]) : t("unknown")}
+                    </span>
                   </span>
-                </span>
-              </div>
+                  {!lockReason && !snowChanged && (
+                    <>
+                      {" · "}
+                      {t("Pick a different mode to change it.")}
+                    </>
+                  )}
+                </>
+              }
+            >
               <div className="flex items-center gap-2">
                 <Select value={snowMode} onValueChange={(v) => setSnowMode(v as SnowMeltMode)} disabled={disabled}>
                   <SelectTrigger
                     id="snow-melt-trigger"
                     size="sm"
                     aria-labelledby="snow-melt-new-label snow-melt-trigger"
-                    className="min-w-0 flex-1"
+                    className="w-36"
                   >
                     <SelectValue />
                   </SelectTrigger>
@@ -222,13 +208,25 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun, onOpenSetti
                   {t("Apply")}
                 </Button>
               </div>
-              {!lockReason && !snowChanged && (
-                <p className="text-[0.6875rem] text-muted-foreground">{t("Pick a different mode to change it.")}</p>
-              )}
-            </div>
+            </Row>
           )}
-        </div>
+
+          {caps.canReboot && (
+            <ActionRow
+              label={t("Reboot dish")}
+              hint={t("Restart the dish. About 2 minutes offline.")}
+              buttonText={t("Reboot")}
+              destructive
+              disabled={disabled}
+              locked={Boolean(lockReason)}
+              busy={busy === "reboot"}
+              icon={<Power aria-hidden />}
+              onClick={() => setPending({ type: "reboot" })}
+            />
+          )}
+        </>
       )}
+    </Group>
 
       <AlertDialog open={pending !== null} onOpenChange={(open) => !open && setPending(null)}>
         <AlertDialogContent className="bg-popover">
@@ -255,42 +253,46 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun, onOpenSetti
           )}
         </AlertDialogContent>
       </AlertDialog>
-    </Section>
+    </>
   );
 }
 
-function ActionButton({
-  icon,
+function ActionRow({
   label,
   hint,
+  buttonText,
+  destructive,
+  icon,
   disabled,
   locked,
   busy,
   onClick,
 }: {
-  icon: ReactNode;
   label: string;
   hint: string;
+  /** Visible button text; defaults to the label. The label stays the accessible name. */
+  buttonText?: string;
+  destructive?: boolean;
+  icon: ReactNode;
   disabled: boolean;
   locked: boolean;
   busy: boolean;
   onClick: () => void;
 }) {
   return (
-    <Button
-      variant="outline"
-      className="h-auto justify-start gap-2.5 px-3 py-2 text-left whitespace-normal"
-      disabled={disabled}
-      aria-describedby={locked ? "controls-lock" : undefined}
-      onClick={onClick}
-    >
-      <span aria-hidden className="grid size-7 shrink-0 place-items-center rounded-md bg-muted [&_svg]:size-3.5">
-        {busy ? <Loader2 className="animate-spin" /> : icon}
-      </span>
-      <span className="flex flex-col">
-        <span className="text-sm font-medium">{label}</span>
-        <span className="text-xs font-normal text-muted-foreground">{hint}</span>
-      </span>
-    </Button>
+    <Row label={label} description={hint}>
+      <Button
+        variant="outline"
+        size="sm"
+        className={destructive ? "text-critical hover:text-critical" : undefined}
+        disabled={disabled}
+        aria-label={label}
+        aria-describedby={locked ? "controls-lock" : undefined}
+        onClick={onClick}
+      >
+        {busy ? <Loader2 className="animate-spin" aria-hidden /> : icon}
+        {buttonText ?? label}
+      </Button>
+    </Row>
   );
 }

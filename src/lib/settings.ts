@@ -85,3 +85,49 @@ export type NotificationTypeKey = (typeof NOTIFICATION_TYPES)[number]["key"];
 export function formatHour(h: number): string {
   return `${String(h).padStart(2, "0")}:00`;
 }
+
+export const CONTROLS_SECTION_IDS = ["dish", "general", "notifications", "data", "connection", "ai", "weather"] as const;
+export type ControlsSectionId = (typeof CONTROLS_SECTION_IDS)[number];
+
+const SECTION_KEY = "starlinkpulse.controls.section";
+
+export function loadControlsSection(): ControlsSectionId {
+  try {
+    const v = localStorage.getItem(SECTION_KEY);
+    return CONTROLS_SECTION_IDS.find((id) => id === v) ?? "dish";
+  } catch {
+    return "dish";
+  }
+}
+
+/** Remember the Controls section; also used to deep-link from other tabs before they open it. */
+export function rememberControlsSection(id: ControlsSectionId): void {
+  try {
+    localStorage.setItem(SECTION_KEY, id);
+  } catch {
+    /* storage unavailable: selection just won't persist */
+  }
+}
+
+/** Which Controls section holds each settings field (for jumping to validation errors). */
+export function sectionOfError(key: keyof SettingsErrors): ControlsSectionId {
+  switch (key) {
+    case "dishAddress":
+    case "routerAddress":
+    case "livePollIntervalS":
+      return "connection";
+    case "dataCapGb":
+    case "billingCycleDay":
+    case "energyPrice":
+    case "battery":
+      return "data";
+    case "quietHours":
+      return "notifications";
+    case "claudeModel":
+    case "localAiUrl":
+    case "localAiModel":
+      return "ai";
+    default:
+      return "dish";
+  }
+}
