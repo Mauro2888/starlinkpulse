@@ -1,7 +1,7 @@
 //! Shared application state.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use tokio::sync::{Notify, RwLock};
@@ -74,8 +74,10 @@ pub struct AppState {
     pub login_item: RwLock<Option<Arc<dyn crate::autostart::LoginItem>>>,
     /// Guided alignment mode (fast read-only polling), bound to a connection session.
     pub alignment: Mutex<Option<crate::alignment::AlignmentSession>>,
-    /// Wakes the live poll when alignment mode changes (interval switch).
+    /// Wakes the live poll when its interval changes (alignment mode, window visibility).
     pub alignment_changed: Notify,
+    /// Whether the dashboard is visible; when hidden the live poll slows down to save power.
+    pub ui_visible: AtomicBool,
     /// Held while an AI analysis runs (one at a time).
     pub ai_lock: tokio::sync::Mutex<()>,
     /// Signalled when settings require a reconnect.
@@ -144,6 +146,7 @@ impl AppState {
             ai_lock: tokio::sync::Mutex::new(()),
             alignment: Mutex::new(None),
             alignment_changed: Notify::new(),
+            ui_visible: AtomicBool::new(true),
             login_item: RwLock::new(None),
             notifier: Mutex::new(crate::notify::NotificationEngine::new()),
             notified_dish_address: Mutex::new(None),

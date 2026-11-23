@@ -58,6 +58,7 @@ export interface CommandMap {
   get_time_of_day_stats: { args: { days: number }; result: TimeOfDayStats };
   get_energy: { args: { days: number }; result: DailyEnergy[] };
   set_alignment_mode: { args: { enabled: boolean }; result: null };
+  set_ui_visible: { args: { visible: boolean }; result: null };
   get_data_usage: { args: { days: number }; result: DataUsage };
   send_test_notification: { args: void; result: null };
   run_diagnostics: { args: void; result: AiReport };
@@ -175,6 +176,7 @@ export const api = {
   getTimeOfDayStats: (days: number) => call("get_time_of_day_stats", { days }),
   getEnergy: (days: number) => call("get_energy", { days }),
   /** Fast (1 s) read-only polling for guided alignment; auto-off after 10 min. */
+  setUiVisible: (visible: boolean) => call("set_ui_visible", { visible }).then(() => undefined),
   setAlignmentMode: (enabled: boolean) => call("set_alignment_mode", { enabled }).then(() => undefined),
   getDataUsage: (days: number) => call("get_data_usage", { days }),
   sendTestNotification: () => call("send_test_notification").then(() => undefined),

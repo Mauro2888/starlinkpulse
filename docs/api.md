@@ -26,6 +26,7 @@ All commands are async and return `Result<T, CommandError>`; arguments are camel
 | `check_for_update` | – | `UpdateInfo` (GitHub Releases `latest.json`; `updaterConfigured:false` if no pubkey) | 5 |
 | `install_update` | – | `()` (downloads, verifies signature, installs, restarts) | 5 |
 | `open_releases_page` | – | `()` (opens the fixed GitHub Releases URL from build config in the system browser; no arbitrary URLs) | 5 |
+| `set_ui_visible` | `visible: bool` | `()` (frontend reports `visibilitychange`; hidden → live poll every 15 s instead of `livePollIntervalS`, alignment mode unaffected) | perf |
 | `set_alignment_mode` | `enabled: bool` | `()` (fast read-only polling of `get_status` every 1 s while enabled; auto-off after 10 min; emits `telemetry` + `alignment-mode` events) | 4.8 |
 | `get_location_stats` | – | `LocationStats[]` (one per location name, incl. "untagged" as name "") | 6 |
 | `rename_location` | `from: string, to: string` | `()` | 6 |

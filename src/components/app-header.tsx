@@ -43,7 +43,7 @@ export function ConnectionBadge({ status }: { status: ConnectionStatus | null })
           )}
         >
           <span className="relative grid size-2 place-items-center" aria-hidden>
-            {meta.pulse && <span className={cn("pulse-ring absolute inset-0 rounded-full", meta.dot)} />}
+            {meta.pulse && <span key={status?.state} className={cn("pulse-ring absolute inset-0 rounded-full", meta.dot)} />}
             <span className={cn("relative size-2 rounded-full", meta.dot)} />
           </span>
           {label}

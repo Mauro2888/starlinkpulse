@@ -267,6 +267,8 @@ export class MockBackend implements Backend {
       }
       case "get_energy":
         return mockEnergy(this.profile, Math.min(90, Math.max(1, Number(args.days) || 14)));
+      case "set_ui_visible":
+        return null;
       case "set_alignment_mode":
         this.setAlignmentMode(Boolean(args.enabled));
         return null;

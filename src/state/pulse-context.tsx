@@ -128,12 +128,20 @@ export function PulseProvider({ children }: { children: ReactNode }) {
     applyLanguage(resolveLanguage(languagePref));
   }, [languagePref]);
 
+  // Tell the backend when the window is hidden/minimized so it can poll the dish less often.
+  useEffect(() => {
+    const report = () => void api.setUiVisible(document.visibilityState === "visible").catch(() => undefined);
+    report();
+    document.addEventListener("visibilitychange", report);
+    return () => document.removeEventListener("visibilitychange", report);
+  }, []);
+
   // Fallback polling: if no telemetry event arrived for two intervals, ask directly.
   const intervalS = settings?.livePollIntervalS ?? 3;
   useEffect(() => {
     const ms = Math.max(1, intervalS) * 1000;
     const id = setInterval(() => {
-      if (Date.now() - lastSnapAt.current > ms * 2) void fetchSnapshot();
+      if (document.visibilityState === "visible" && Date.now() - lastSnapAt.current > ms * 2) void fetchSnapshot();
     }, ms);
     return () => clearInterval(id);
   }, [intervalS, fetchSnapshot]);

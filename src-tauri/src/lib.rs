@@ -130,6 +130,7 @@ pub fn run() {
             commands::analyze_network_with_ai,
             commands::get_last_ai_report,
             commands::set_alignment_mode,
+            commands::set_ui_visible,
             commands::get_location_stats,
             commands::rename_location,
             commands::delete_location,

@@ -333,6 +333,18 @@ pub async fn set_alignment_mode(state: State<'_, Arc<AppState>>, enabled: bool) 
     Ok(())
 }
 
+/// Reported by the frontend on `visibilitychange`; a hidden dashboard slows the live poll.
+#[tauri::command]
+pub fn set_ui_visible(state: State<'_, Arc<AppState>>, visible: bool) {
+    let was = state
+        .ui_visible
+        .swap(visible, std::sync::atomic::Ordering::Relaxed);
+    if visible && !was {
+        // Refresh the live view right away instead of waiting for the slow interval.
+        state.alignment_changed.notify_one();
+    }
+}
+
 // ---- Phase 6 ----------------------------------------------------------------
 
 async fn on_db<T: Send + 'static>(

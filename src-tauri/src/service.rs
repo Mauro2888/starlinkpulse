@@ -541,6 +541,9 @@ pub fn next_router_backoff(current: Duration) -> Duration {
     (current * 2).min(ROUTER_BACKOFF_MAX)
 }
 
+/// Live poll interval while the dashboard window is hidden or minimized.
+pub const HIDDEN_POLL_PERIOD: Duration = Duration::from_secs(15);
+
 /// Polls `get_status` and emits `telemetry` on every success. Returns when a real dish fails
 /// [`MAX_POLL_FAILURES`] times in a row; runs forever for the mock.
 async fn live_poll(
@@ -559,7 +562,11 @@ async fn live_poll(
         // Alignment mode switches to 1 s polling; a mode change wakes the wait at once.
         let aligning = crate::alignment::tick(&state, &mut last_alignment_event).await;
         if !first {
-            let wait = crate::alignment::poll_period(period, aligning);
+            let mut wait = crate::alignment::poll_period(period, aligning);
+            // Nobody is looking: poll less often (notifications and the tray still update).
+            if !aligning && !state.ui_visible.load(std::sync::atomic::Ordering::Relaxed) {
+                wait = wait.max(HIDDEN_POLL_PERIOD);
+            }
             tokio::select! {
                 _ = tokio::time::sleep(wait) => {}
                 _ = state.alignment_changed.notified() => {}
