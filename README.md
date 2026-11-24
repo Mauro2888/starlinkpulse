@@ -2,7 +2,7 @@
 
 Desktop app for keeping an eye on a Starlink dish. Runs in the menu bar / system tray on macOS, Windows and Linux and talks to the dish over its local API, so no account or internet connection is needed.
 
-![Live tab](docs/screenshots/live-desktop.png)
+![StarlinkPulse demo](docs/demo.gif)
 
 More screenshots in [docs/screenshots](docs/screenshots) (taken in demo mode).
 
