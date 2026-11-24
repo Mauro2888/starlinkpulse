@@ -79,18 +79,23 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun }: DishActio
   const [pending, setPending] = useState<DishAction | null>(null);
   const [busy, setBusy] = useState<DishAction["type"] | null>(null);
   const currentSnow = capabilities?.snowMeltMode ?? null;
-  const [snowMode, setSnowMode] = useState<SnowMeltMode>(currentSnow ?? "auto");
+  // Unknown current mode: no preselection, so Apply needs an explicit choice.
+  const [snowMode, setSnowMode] = useState<SnowMeltMode | null>(currentSnow);
   // Follow the dish when its reported mode changes (e.g. after Apply).
   useEffect(() => {
     if (currentSnow) setSnowMode(currentSnow);
   }, [currentSnow]);
-  const snowChanged = currentSnow === null || snowMode !== currentSnow;
+  const snowChanged = snowMode !== null && snowMode !== currentSnow;
 
   const caps = capabilities;
   const none = caps && !caps.canReboot && !caps.canStow && !caps.canSetSnowMelt;
   const { t } = useTranslation();
   const lockReason = readOnly ? t("Read-only mode is on") : !linkUp ? t("The dish is not connected") : null;
   const disabled = Boolean(lockReason) || busy !== null;
+  // Read-only switched on (or link lost) while a confirmation is open: drop it.
+  useEffect(() => {
+    if (lockReason) setPending(null);
+  }, [lockReason]);
 
   const run = async (a: DishAction) => {
     setBusy(a.type);
@@ -166,7 +171,7 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun }: DishActio
                       {currentSnow ? t(SNOW_MELT_LABELS[currentSnow]) : t("unknown")}
                     </span>
                   </span>
-                  {!lockReason && !snowChanged && (
+                  {!lockReason && currentSnow && !snowChanged && (
                     <>
                       {" · "}
                       {t("Pick a different mode to change it.")}
@@ -176,20 +181,19 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun }: DishActio
               }
             >
               <div className="flex items-center gap-2">
-                <Select value={snowMode} onValueChange={(v) => setSnowMode(v as SnowMeltMode)} disabled={disabled}>
+                <Select value={snowMode ?? undefined} onValueChange={(v) => setSnowMode(v as SnowMeltMode)} disabled={disabled}>
                   <SelectTrigger
                     id="snow-melt-trigger"
                     size="sm"
                     aria-labelledby="snow-melt-new-label snow-melt-trigger"
-                    className="w-auto min-w-36"
+                    className="w-36"
                   >
-                    <SelectValue />
+                    <SelectValue placeholder={t("Choose…")} />
                   </SelectTrigger>
                   <SelectContent>
                     {(Object.keys(SNOW_MELT_LABELS) as SnowMeltMode[]).map((m) => (
                       <SelectItem key={m} value={m}>
                         {t(SNOW_MELT_LABELS[m])}
-                        {m === currentSnow ? ` (${t("current")})` : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -202,7 +206,7 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun }: DishActio
                   variant="outline"
                   disabled={disabled || !snowChanged}
                   aria-describedby={lockReason ? "controls-lock" : "snow-melt-current"}
-                  onClick={() => setPending({ type: "snow_melt", mode: snowMode })}
+                  onClick={() => snowMode && setPending({ type: "snow_melt", mode: snowMode })}
                 >
                   {busy === "snow_melt" && <Loader2 className="animate-spin" aria-hidden />}
                   {t("Apply")}
@@ -243,7 +247,7 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun }: DishActio
                   onClick={() => {
                     const a = pending;
                     setPending(null);
-                    if (a) void run(a);
+                    if (a && !lockReason) void run(a);
                   }}
                 >
                   {copy.cta}

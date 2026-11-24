@@ -73,9 +73,9 @@ describe("DishActions", () => {
     expect(screen.getByRole("button", { name: "Apply" })).toBeDisabled();
   });
 
-  it("allows Apply when the current snow melt mode is unknown", () => {
+  it("requires an explicit choice when the current snow melt mode is unknown", () => {
     setup({ capabilities: { ...caps, canSetSnowMelt: true, snowMeltMode: null } });
     expect(screen.getByText(/Current:/)).toHaveTextContent("unknown");
-    expect(screen.getByRole("button", { name: "Apply" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Apply" })).toBeDisabled();
   });
 });
