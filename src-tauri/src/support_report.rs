@@ -206,7 +206,7 @@ where
         }
         line("");
         let mut rows: Vec<&DishEvent> = inp.outages_48h.iter().collect();
-        rows.sort_by(|a, b| b.start_ms.cmp(&a.start_ms));
+        rows.sort_by_key(|a| std::cmp::Reverse(a.start_ms));
         line(&format!("| {} | {} | {} |", t.start, t.duration, t.cause));
         line("|---|---:|---|");
         for o in rows.iter().take(MAX_OUTAGE_ROWS) {
