@@ -78,4 +78,22 @@ describe("DishActions", () => {
     expect(screen.getByText(/Current:/)).toHaveTextContent("unknown");
     expect(screen.getByRole("button", { name: "Apply" })).toBeDisabled();
   });
+
+  it("closes an open confirmation and blocks the write when read-only turns on", async () => {
+    const onRun = vi.fn(async () => undefined);
+    const props = { capabilities: { ...caps, canReboot: true }, linkUp: true, onRun };
+    const { rerender } = render(<DishActions {...props} readOnly={false} />);
+    await userEvent.click(screen.getByRole("button", { name: /reboot dish/i }));
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    rerender(<DishActions {...props} readOnly />);
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(onRun).not.toHaveBeenCalled();
+  });
+
+  it("resets to an explicit choice when the reported mode becomes unknown", () => {
+    const props = { readOnly: false, linkUp: true, onRun: vi.fn(async () => undefined) };
+    const { rerender } = render(<DishActions {...props} capabilities={{ ...caps, canSetSnowMelt: true, snowMeltMode: "auto" }} />);
+    rerender(<DishActions {...props} capabilities={{ ...caps, canSetSnowMelt: true, snowMeltMode: null }} />);
+    expect(screen.getByRole("button", { name: "Apply" })).toBeDisabled();
+  });
 });

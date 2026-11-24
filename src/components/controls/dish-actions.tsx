@@ -82,9 +82,7 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun }: DishActio
   // Unknown current mode: no preselection, so Apply needs an explicit choice.
   const [snowMode, setSnowMode] = useState<SnowMeltMode | null>(currentSnow);
   // Follow the dish when its reported mode changes (e.g. after Apply).
-  useEffect(() => {
-    if (currentSnow) setSnowMode(currentSnow);
-  }, [currentSnow]);
+  useEffect(() => setSnowMode(currentSnow), [currentSnow]);
   const snowChanged = snowMode !== null && snowMode !== currentSnow;
 
   const caps = capabilities;
@@ -92,10 +90,11 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun }: DishActio
   const { t } = useTranslation();
   const lockReason = readOnly ? t("Read-only mode is on") : !linkUp ? t("The dish is not connected") : null;
   const disabled = Boolean(lockReason) || busy !== null;
-  // Read-only switched on (or link lost) while a confirmation is open: drop it.
+  // Read-only switched on while a confirmation is open: drop it. A brief link loss doesn't
+  // close it; the confirm handler re-checks the lock instead.
   useEffect(() => {
-    if (lockReason) setPending(null);
-  }, [lockReason]);
+    if (readOnly) setPending(null);
+  }, [readOnly]);
 
   const run = async (a: DishAction) => {
     setBusy(a.type);
@@ -181,7 +180,7 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun }: DishActio
               }
             >
               <div className="flex items-center gap-2">
-                <Select value={snowMode ?? undefined} onValueChange={(v) => setSnowMode(v as SnowMeltMode)} disabled={disabled}>
+                <Select value={snowMode ?? ""} onValueChange={(v) => setSnowMode(v as SnowMeltMode)} disabled={disabled}>
                   <SelectTrigger
                     id="snow-melt-trigger"
                     size="sm"
@@ -192,7 +191,11 @@ export function DishActions({ capabilities, readOnly, linkUp, onRun }: DishActio
                   </SelectTrigger>
                   <SelectContent>
                     {(Object.keys(SNOW_MELT_LABELS) as SnowMeltMode[]).map((m) => (
-                      <SelectItem key={m} value={m}>
+                      <SelectItem
+                        key={m}
+                        value={m}
+                        suffix={m === currentSnow ? <span className="text-muted-foreground">({t("current")})</span> : undefined}
+                      >
                         {t(SNOW_MELT_LABELS[m])}
                       </SelectItem>
                     ))}
