@@ -36,3 +36,7 @@ src-tauri/gen/schemas
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Internal notes
+CLAUDE.md
+TASKS.md
