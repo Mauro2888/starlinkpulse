@@ -1,6 +1,6 @@
 [package]
 name = "starlinkpulse"
-version = "0.1.0"
+version = "1.0.0"
 description = "Lightweight cross-platform Starlink monitor with AI diagnostics"
 authors = ["StarlinkPulse contributors"]
 license = "MIT"
