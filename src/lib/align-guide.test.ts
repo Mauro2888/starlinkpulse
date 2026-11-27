@@ -27,21 +27,27 @@ function feed(samples: AlignSample[], from: GuideState = initialGuide()): GuideS
 
 describe("guided alignment steps", () => {
   it("asks for direction first, then tilt, then holding", () => {
-    let g = feed([s(0, 166.8, 63.9), s(1000, 166.8, 63.9)]);
+    let g = feed([s(0, 160, 60), s(1000, 160, 60)]);
     expect(g.phase).toMatchObject({ kind: "direction" });
-    expect((g.phase as { deltaDeg: number }).deltaDeg).toBeCloseTo(11.2);
+    expect((g.phase as { deltaDeg: number }).deltaDeg).toBeCloseTo(18);
 
-    // Direction fixed in small steps (no jump > 3° within 2 s), tilt still low.
-    g = feed([s(4000, 169.5, 63.9), s(7000, 172, 63.9), s(10000, 174.5, 63.9), s(13000, 177, 63.9), s(14000, 177, 63.9)], g);
+    // Direction fixed in small steps (no jump > 3° within 2 s), tilt still 6° low.
+    g = feed([s(4000, 162.5, 60), s(7000, 165, 60), s(10000, 167.5, 60), s(13000, 170, 60), s(16000, 172.5, 60), s(19000, 175, 60), s(22000, 177, 60), s(23000, 177, 60)], g);
     expect(g.phase).toMatchObject({ kind: "tilt" });
-    expect((g.phase as { deltaDeg: number }).deltaDeg).toBeCloseTo(2.1);
+    expect((g.phase as { deltaDeg: number }).deltaDeg).toBeCloseTo(6);
 
-    g = feed([s(17000, 177, 65.5), s(18000, 177, 65.5)], g);
+    g = feed([s(26000, 177, 62.5), s(29000, 177, 65), s(30000, 177, 65)], g);
     expect(g.phase).toMatchObject({ kind: "holding" });
   });
 
+  it("is on target within 5° combined, even if one axis alone is off by more", () => {
+    // Installer's Mini: 6.7° / 3.4° off per axis at ~69° elevation = ~4.2° in total.
+    const g = feed([s(0, 26.7, 69.4, { desiredAz: 20, desiredEl: 66 }), s(1000, 26.7, 69.4, { desiredAz: 20, desiredEl: 66 })]);
+    expect(g.phase.kind).toBe("holding");
+  });
+
   it("goes back to direction if the dish drifts out of tolerance", () => {
-    const g = feed([s(0, 177.5, 66), s(1000, 177.5, 66), s(4000, 174, 66)]);
+    const g = feed([s(0, 177.5, 66), s(1000, 177.5, 66), s(3000, 175, 66), s(5000, 172.5, 66), s(7000, 170, 66), s(9000, 167.5, 66), s(11000, 165, 66)]);
     expect(g.phase.kind).toBe("direction");
   });
 
@@ -59,10 +65,12 @@ describe("guided alignment steps", () => {
   });
 
   it("restarts the 10 s count after leaving tolerance", () => {
-    let g = feed([s(0, 177.6, 65.8), s(5000, 177.6, 65.8), s(6000, 174, 65.8)]);
-    g = feed([s(9000, 177.6, 65.8), s(15000, 177.6, 65.8)], g);
+    // 6° of tilt is off target; 3° steps 3 s apart are not a jump.
+    let g = feed([s(0, 177.6, 65.8), s(5000, 177.6, 65.8), s(8000, 177.6, 62.8), s(11000, 177.6, 59.8)]);
+    expect(g.phase.kind).toBe("tilt");
+    g = feed([s(14000, 177.6, 62.8), s(17000, 177.6, 65.8), s(23000, 177.6, 65.8)], g);
     expect(g.done).toBe(false);
-    g = stepGuide(g, s(19500, 177.6, 65.8));
+    g = stepGuide(g, s(27000, 177.6, 65.8));
     expect(g.done).toBe(true);
   });
 });
@@ -89,9 +97,9 @@ describe("hold-still gating", () => {
   });
 
   it("holds after a jump of more than 3° in the last 2 s, then gives directions again", () => {
-    let g = feed([s(0, 166.8, 63.9), s(1000, 171, 63.9)]);
+    let g = feed([s(0, 150, 60), s(1000, 155, 60)]);
     expect(g.phase).toEqual({ kind: "hold", reason: "moving" });
-    g = stepGuide(g, s(3500, 171, 63.9));
+    g = stepGuide(g, s(3500, 155, 60));
     expect(g.phase.kind).toBe("direction");
     expect(holdReason([s(0, 170, 60), s(1500, 170, 63.5)])).toBe("moving");
   });

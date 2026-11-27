@@ -383,7 +383,7 @@
   "Moving while not allowed": "Moving while not allowed",
   "N": "N",
   "NE": "NE",
-  "Needle: where the dish faces now. Dot: target. Good within ±{{az}}° direction and ±{{el}}° elevation.": "Needle: where the dish faces now. Dot: target. Good within ±{{az}}° direction and ±{{el}}° elevation.",
+  "Needle: where the dish faces now. Dot: target. Good within {{deg}}° of the target, direction and elevation combined.": "Needle: where the dish faces now. Dot: target. Good within {{deg}}° of the target, direction and elevation combined.",
   "Needs attention": "Needs attention",
   "Network congestion": "Network congestion",
   "Network unreachable": "Network unreachable",

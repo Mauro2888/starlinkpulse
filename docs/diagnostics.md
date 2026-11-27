@@ -48,8 +48,9 @@ Same convention as the UI alignment helper:
   recommended direction. A per-axis check overstates the error at high elevation (a 6.7° azimuth
   offset at 69° elevation is about 2.4° of real pointing). The 5° limit comes from third-party
   reports of when the Starlink app warns; it is not an official figure. Within it, the UI shows
-  both axes as good. The 2° / 1° per-axis tolerances stay for the rotate/tilt actions and the
-  step-by-step alignment guide (`align-guide.ts`), which aims for a precise finish.
+  both axes as good, and the step-by-step guide (`align-guide.ts`) counts as on target. The
+  2° / 1° per-axis tolerances only pick which rotate/tilt instruction to give while the dish is
+  off target.
 
 ## Output
 

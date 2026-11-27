@@ -378,7 +378,6 @@
   "Moving while not allowed": "In movimento senza autorizzazione",
   "N": "N",
   "NE": "NE",
-  "Needle: where the dish faces now. Dot: target. Good within ±{{az}}° direction and ±{{el}}° elevation.": "Lancetta: dove punta ora la parabola. Punto: obiettivo. Va bene entro ±{{az}}° di direzione e ±{{el}}° di elevazione.",
   "Needs attention": "Da controllare",
   "Network congestion": "Rete congestionata",
   "Network unreachable": "Rete non raggiungibile",
@@ -821,5 +820,6 @@
   "Cable between the Starlink router and the dish.": "Cavo tra il router Starlink e la parabola.",
   "Through the satellite to Starlink's network.": "Attraverso il satellite fino alla rete Starlink.",
   "Checked: your Starlink router has IPv6, so phones on its Wi-Fi usually get it too. If videos still buffer, try a VPN or a firewall app on the phone.": "Verificato: il tuo router Starlink ha IPv6, quindi di solito lo ricevono anche i telefoni sul suo Wi-Fi. Se i video si bloccano ancora, prova una VPN o un'app firewall sul telefono.",
-  "Checked: your Starlink router has no IPv6 right now, so all traffic goes through the shared IPv4 address (CGNAT). If videos buffer, try a VPN or a firewall app on the phone.": "Verificato: il tuo router Starlink ora non ha IPv6, quindi tutto il traffico passa dall'indirizzo IPv4 condiviso (CGNAT). Se i video si bloccano, prova una VPN o un'app firewall sul telefono."
+  "Checked: your Starlink router has no IPv6 right now, so all traffic goes through the shared IPv4 address (CGNAT). If videos buffer, try a VPN or a firewall app on the phone.": "Verificato: il tuo router Starlink ora non ha IPv6, quindi tutto il traffico passa dall'indirizzo IPv4 condiviso (CGNAT). Se i video si bloccano, prova una VPN o un'app firewall sul telefono.",
+  "Needle: where the dish faces now. Dot: target. Good within {{deg}}° of the target, direction and elevation combined.": "Ago: dove punta ora la parabola. Punto: obiettivo. Va bene entro {{deg}}° dall'obiettivo, direzione e inclinazione insieme."
 }

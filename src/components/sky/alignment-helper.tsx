@@ -1,7 +1,7 @@
 import { CircleCheck, Compass, Footprints } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { AlignmentStats } from "@/types/models";
-import { alignmentGuidance, AZ_TOLERANCE_DEG, EL_TOLERANCE_DEG, normalizeAzimuth } from "@/lib/sky";
+import { ALIGNED_TOLERANCE_DEG, alignmentGuidance, AZ_TOLERANCE_DEG, EL_TOLERANCE_DEG, normalizeAzimuth } from "@/lib/sky";
 import { fmtNum, isNum } from "@/lib/format";
 import { useTranslation } from "react-i18next";
 import { tr } from "@/i18n";
@@ -137,9 +137,8 @@ export function AlignmentHelper({
       )}
 
       <p className="text-[0.6875rem] leading-relaxed text-muted-foreground">
-        {t("Needle: where the dish faces now. Dot: target. Good within ±{{az}}° direction and ±{{el}}° elevation.", {
-          az: AZ_TOLERANCE_DEG,
-          el: EL_TOLERANCE_DEG,
+        {t("Needle: where the dish faces now. Dot: target. Good within {{deg}}° of the target, direction and elevation combined.", {
+          deg: ALIGNED_TOLERANCE_DEG,
         })}
         {g.uncertaintyDeg !== null &&
           ` ${t("Measurement uncertainty ±{{deg}}°.", { deg: fmtNum(g.uncertaintyDeg, 1, true) })}`}

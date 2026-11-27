@@ -1,7 +1,7 @@
 // Guided alignment state machine (pure, testable). Fed one telemetry sample at a time.
 
 import type { AlignmentStats } from "@/types/models";
-import { AZ_TOLERANCE_DEG, EL_TOLERANCE_DEG, azimuthDelta, normalizeAzimuth } from "@/lib/sky";
+import { ALIGNED_TOLERANCE_DEG, AZ_TOLERANCE_DEG, EL_TOLERANCE_DEG, azimuthDelta, normalizeAzimuth, pointingErrorDeg } from "@/lib/sky";
 import { isNum } from "@/lib/format";
 
 export const UNCERTAINTY_LIMIT_DEG = 1.5;
@@ -90,15 +90,23 @@ export function holdReason(samples: AlignSample[]): HoldReason | null {
   return null;
 }
 
-/** Feeds one sample. Direction first, then tilt; done after 10 s within tolerance. Done is sticky. */
+/**
+ * Feeds one sample. On target = combined pointing error within ALIGNED_TOLERANCE_DEG (same as
+ * the rest of the app); off target: direction first, then tilt. Done after 10 s on target; sticky.
+ */
 export function stepGuide(prev: GuideState, sample: AlignSample | null): GuideState {
   if (prev.done || !sample) return prev;
   const samples = [...prev.samples.filter((s) => sample.t - s.t <= JUMP_WINDOW_MS * 2), sample];
   const start = prev.start ?? { az: sample.az, el: sample.el };
   const dAz = azimuthDelta(sample.az, sample.desiredAz);
   const dEl = sample.el !== null && sample.desiredEl !== null ? sample.desiredEl - sample.el : 0;
-  const azOk = Math.abs(dAz) <= AZ_TOLERANCE_DEG;
-  const elOk = Math.abs(dEl) <= EL_TOLERANCE_DEG;
+  const onTarget =
+    sample.el !== null && sample.desiredEl !== null
+      ? pointingErrorDeg(sample.az, sample.el, sample.desiredAz, sample.desiredEl) <= ALIGNED_TOLERANCE_DEG
+      : Math.abs(dAz) <= AZ_TOLERANCE_DEG;
+  // Off target, the axis that is clearly off gets the instruction.
+  const azOk = onTarget || Math.abs(dAz) <= AZ_TOLERANCE_DEG;
+  const elOk = onTarget || Math.abs(dEl) <= EL_TOLERANCE_DEG;
   const hold = holdReason(samples);
 
   if (hold) {
