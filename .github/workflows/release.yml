@@ -111,6 +111,18 @@ jobs:
             exit 1
           fi
 
+      # tauri-action names the release after the app version (v__VERSION__), not the pushed tag:
+      # a stale version would upload this build to an older release.
+      - name: Check tag matches app version
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          version=$(node -p 'require("./src-tauri/tauri.conf.json").version')
+          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match app version ${version} (tauri.conf.json, package.json, Cargo.toml)"
+            exit 1
+          fi
+
       - uses: tauri-apps/tauri-action@v0
         id: tauri
         env:
