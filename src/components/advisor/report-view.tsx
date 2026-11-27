@@ -107,7 +107,7 @@ export function ReportView({ report, onRerun, rerunDisabled, onOpenSkyView, wide
         <p className="mt-1 text-xs text-muted-foreground">
           {report.findings.length === 0
             ? t("No findings.")
-            : t("{{count}} findings from the last {{hours}} hours.", {
+            : t("{{count}} things found in the last {{hours}} hours.", {
                 count: report.findings.length,
                 hours: report.payload.windowHours,
               })}
@@ -151,7 +151,7 @@ export function ReportView({ report, onRerun, rerunDisabled, onOpenSkyView, wide
         </span>
         {onRerun && (
           <Button size="sm" variant="outline" onClick={onRerun} disabled={rerunDisabled}>
-            <RefreshCw aria-hidden /> {report.source === "rules" ? t("Run again") : t("Explain again")}
+            <RefreshCw aria-hidden /> {t("Explain again")}
           </Button>
         )}
       </footer>

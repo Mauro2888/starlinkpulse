@@ -8,7 +8,7 @@ export const SEVERITY_ORDER: readonly AiSeverity[] = ["critical", "warning", "in
 export const SEVERITY_LABELS: Record<AiSeverity, string> = {
   critical: tk("Critical"),
   warning: tk("Worth fixing"),
-  info: tk("For your information"),
+  info: tk("Good to know"),
 };
 
 /** Groups findings by severity, critical first; empty groups are omitted. Order inside a group is kept. */
@@ -147,7 +147,7 @@ export const DEFAULT_CLAUDE_MODEL = "claude-opus-5-5";
 // ---- Providers ------------------------------------------------------------
 
 export const SOURCE_LABELS: Record<ReportSource, string> = {
-  rules: tk("Built-in rules"),
+  rules: tk("Checked on this computer"),
   claude: tk("Claude"),
   local: tk("Local model"),
 };

@@ -100,7 +100,7 @@ describe("Diagnose tab", () => {
     const calls = fake();
     renderTab("off");
     expect(await screen.findByText("Rules headline")).toBeInTheDocument();
-    expect(screen.getByText("Built-in rules")).toBeInTheDocument();
+    expect(screen.getByText("Checked on this computer")).toBeInTheDocument();
     expect(calls).toContain("run_diagnostics");
     expect(calls).not.toContain("preview_ai_payload");
   });

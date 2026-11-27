@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { StatePanel } from "@/components/state-panels";
 import { ReportView } from "@/components/advisor/report-view";
+import { CommonProblems } from "@/components/advisor/common-problems";
 import { SupportReportButton } from "@/components/advisor/support-report";
 
 interface Props {
@@ -212,8 +213,6 @@ export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings, onOpen
     main = (
       <ReportView
         report={rules}
-        onRerun={diagnose}
-        rerunDisabled={diagnosing}
         onOpenSkyView={onOpenSkyView}
         wide={!sideBySide}
       />
@@ -338,6 +337,8 @@ export function DiagnoseTab({ ai, hasKey, onOpenApiKey, onOpenAiSettings, onOpen
         </section>
       )}
       </div>
+
+      <CommonProblems />
 
       <PreviewDialog
         payload={preview}

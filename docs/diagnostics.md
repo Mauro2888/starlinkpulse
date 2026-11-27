@@ -81,6 +81,33 @@ samples of the last 2 minutes:
 - The tray tooltip shows the rating, e.g. `Connected · 26 ms · Video ✓ · Gaming ~ · Streaming ✓`
   (✓ good, ~ fair, ✗ poor).
 
+## Common problems (static guide)
+
+Below the report, the Diagnose tab shows a short "Common problems" guide. It is static text in
+the frontend (`src/components/advisor/common-problems.tsx`): no detection, no network calls,
+and it is shown even without enough history.
+
+### Instagram / Facebook videos buffering on phones
+
+- **Reported cause:** Starlink users reported in 2021–22 that Meta's apps load media badly
+  over QUIC (HTTP/3 on UDP 443) through Starlink's IPv4 CGNAT, and that forcing the fallback to
+  TCP fixes it ([O'Reilly](https://www.oreilly.ie/starlink-instagram-and-facebook-fix/),
+  [Starlink Free](https://starlinkfree.com/starlink-facebook-issue-fixed/),
+  [R. Bourlier](https://www.linkedin.com/pulse/starlink-%C3%A9pisode-2-ma-configuration-ronan-bourlier-)).
+  Starlink also documents a cap on concurrent CGNAT sessions on Residential/Roam plans
+  ([Starlink Help Center](https://starlink.com/support/article/bb372afe-7dd4-ae54-a2af-29cf63d24ddf)).
+  None of this is confirmed as current; treat it as user reports.
+- **IPv6:** Starlink hands out IPv6 (a /56 via DHCPv6-PD to third-party routers), and Meta's
+  app and media hosts (`instagram.com`, `*.cdninstagram.com`, `*.fbcdn.net`) answer over IPv6
+  (checked 2026-11-27). Traffic over IPv6 does not cross the IPv4 CGNAT, so enabling IPv6 on a
+  third-party router is the first suggestion. This is an inference, not a confirmed fix.
+- **Fallback:** block outgoing UDP 80/443 on a third-party router so apps switch to TCP. The
+  Starlink router has no firewall rules (its gRPC API only offers `wifi_get_firewall`, read-only).
+- **Without a router change:** a VPN on the phone, or on Android a firewall app. iOS has no
+  setting for this.
+- **Not built, on purpose:** a QUIC vs TCP probe (needs an HTTP/3 client, which adds weight to the
+  app) and OS firewall rules on the computer (writes to the user's system, and do not help phones).
+
 ## Languages
 
 All rule texts come from the EN/IT catalog in `src-tauri/src/i18n.rs` (`RuleTexts`). Numbers

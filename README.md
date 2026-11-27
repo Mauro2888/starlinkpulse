@@ -11,7 +11,7 @@ More screenshots in [docs/screenshots](docs/screenshots) (taken in demo mode).
 - Live speed, latency, packet loss, obstruction and power draw
 - 48 hours of history stored locally (SQLite), with charts and an outage log
 - Obstruction map (flat or 3D) and an alignment helper for non-motorized dishes
-- Diagnose tab: built-in rules that look at the last 24 h and tell you what's likely wrong. Works offline.
+- Diagnose tab: built-in rules that look at the last 24 h and tell you what's likely wrong. Works offline. Also has short guides for common problems, like Instagram videos buffering on phones.
 - Optional AI explanation of the diagnosis, using your own Claude API key or a local model (Ollama, LM Studio, llama.cpp). Off by default.
 - Notifications for outages, overheating, reboots, data cap, etc.
 - Reboot / stow / snow melt, if your dish supports them. Read-only mode is on by default.
