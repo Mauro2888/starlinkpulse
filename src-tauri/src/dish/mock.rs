@@ -843,9 +843,10 @@ impl RouterClient for MockClient {
             return Err(ClientError::Unreachable("no mock router".into()));
         }
         let now_s = now_ms() / 1000;
+        // Throttled: no IPv6; Obstructed: router reports no internet (UI error paths).
         Ok(crate::models::RouterStatus {
-            online: Some(true),
-            ipv6: true,
+            online: Some(self.profile != MockProfile::Obstructed),
+            ipv6: self.profile != MockProfile::Throttled,
             dish_ping_ms: Some(0.5),
             pop_ping_ms: Some((26.0 + 4.0 * gauss(now_s / 15, 91)).max(18.0)),
         })

@@ -121,8 +121,10 @@ export function WifiDevicesView({ data, error }: { data: WifiDevices | null; err
             : t("Not updated, showing the last data received")}
         </p>
       )}
-      {data?.available && data.router && <RouterLine r={data.router} />}
-      <div className={cn(stale && "opacity-60")}>{body}</div>
+      <div className={cn(stale && "opacity-60")}>
+        {data?.available && data.router && <RouterLine r={data.router} />}
+        {body}
+      </div>
       {tip && (
         <p className="mt-2.5 flex items-start gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs leading-relaxed ring-1 ring-warning/30">
           <Lightbulb className="mt-px size-3.5 shrink-0 text-warning" aria-hidden />

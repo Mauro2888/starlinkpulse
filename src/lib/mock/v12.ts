@@ -17,7 +17,8 @@ export function mockWifi(p: ProfileSpec): WifiDevices {
   return {
     available: true,
     updatedMs: Date.now(),
-    router: { online: true, ipv6: true, dishPingMs: 0.5, popPingMs: +(p.latencyMs * j()).toFixed(1) },
+    // Same as the Rust mock: throttled has no IPv6, obstructed reports no internet.
+    router: { online: p.obstructed < 0.05, ipv6: !p.restricted, dishPingMs: 0.5, popPingMs: +(p.latencyMs * j()).toFixed(1) },
     devices: BASE.map((d) => ({
       ...d,
       downMbps: d.downMbps == null ? null : +(d.downMbps * j()).toFixed(1),

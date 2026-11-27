@@ -66,8 +66,8 @@ export function CommonProblems() {
             {p.ipv6Hint && ipv6 !== null && (
               <p role="status" className="rounded-lg bg-muted/40 px-2.5 py-1.5">
                 {ipv6
-                  ? t("Checked: your Starlink router has IPv6, so phones on its Wi-Fi can already reach Meta over IPv6. If videos still buffer, try step 4.")
-                  : t("Checked: your Starlink router has no IPv6 right now, so all traffic goes through the shared IPv4 address (CGNAT). If videos buffer, try step 4.")}
+                  ? t("Checked: your Starlink router has IPv6, so phones on its Wi-Fi usually get it too. If videos still buffer, try a VPN or a firewall app on the phone.")
+                  : t("Checked: your Starlink router has no IPv6 right now, so all traffic goes through the shared IPv4 address (CGNAT). If videos buffer, try a VPN or a firewall app on the phone.")}
               </p>
             )}
             <ol className="flex list-decimal flex-col gap-1.5 pl-4 marker:text-muted-foreground">

@@ -373,18 +373,23 @@ async fn session(state: &Arc<AppState>, settings: &Settings, sink: &Arc<dyn Even
             }
             _ = router_tick.tick() => {
                 if let Some(r) = router.clone() {
-                    match tokio::time::timeout(ROUTER_POLL_TIMEOUT, r.wifi_clients())
-                        .await
-                        .unwrap_or(Err(crate::error::ClientError::Timeout))
-                    {
+                    // One time budget for both reads, so the session loop never waits longer.
+                    let polled = tokio::time::timeout(
+                        ROUTER_POLL_TIMEOUT,
+                        async { tokio::join!(r.wifi_clients(), r.router_status()) },
+                    )
+                    .await;
+                    let (clients, router_st) = match polled {
+                        Ok((c, s)) => (c, s.ok()),
+                        Err(_) => (Err(crate::error::ClientError::Timeout), None),
+                    };
+                    match clients {
                         Ok(clients) => {
                             router_misses = 0;
                             *state.wifi_clients.write().await = clients;
                             *state.wifi_updated_ms.write().await = Some(now_ms());
-                            // Best effort: a failed status read keeps the previous value.
-                            if let Ok(Ok(st)) = tokio::time::timeout(ROUTER_POLL_TIMEOUT, r.router_status()).await {
-                                *state.router_status.write().await = Some(st);
-                            }
+                            // Failed status read: clear it rather than show old values as current.
+                            *state.router_status.write().await = router_st;
                         }
                         Err(e) => {
                             router_misses += 1;

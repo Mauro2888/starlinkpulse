@@ -416,18 +416,16 @@ impl RouterClient for GrpcClient {
     }
 
     async fn router_status(&self) -> Result<RouterStatus, ClientError> {
-        let top = self.handle("get_status").await?;
-        // Optional: older firmware may lack `wifi_guest_info`; `isOnline` false is omitted.
-        let online = match self.handle("wifi_guest_info").await {
-            Ok(g) => Some(
-                response_body(&g, "wifiGuestInfo")
-                    .ok()
-                    .and_then(|b| b.get("isOnline"))
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-            ),
-            Err(_) => None,
-        };
+        // WAN addresses are PII; kept only here, reduced to a bool by the parser.
+        let req = build_request(&self.schema, "get_status", None)?;
+        let top = self.call_keeping(req, &["ipv6WanAddresses"]).await?;
+        // Optional: older firmware may lack `wifi_guest_info`. Inside a readable body,
+        // `isOnline` false is omitted (proto3); no readable body = unknown.
+        let online = self.handle("wifi_guest_info").await.ok().and_then(|g| {
+            response_body(&g, "wifiGuestInfo")
+                .ok()
+                .map(|b| b.get("isOnline").and_then(Value::as_bool).unwrap_or(false))
+        });
         Ok(json::parse_router_status(
             response_body(&top, "wifiGetStatus")?,
             online,

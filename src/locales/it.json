@@ -820,6 +820,6 @@
   "Router → Starlink": "Router → Starlink",
   "Cable between the Starlink router and the dish.": "Cavo tra il router Starlink e la parabola.",
   "Through the satellite to Starlink's network.": "Attraverso il satellite fino alla rete Starlink.",
-  "Checked: your Starlink router has IPv6, so phones on its Wi-Fi can already reach Meta over IPv6. If videos still buffer, try step 4.": "Verificato: il tuo router Starlink ha IPv6, quindi i telefoni sul suo Wi-Fi possono già raggiungere Meta via IPv6. Se i video si bloccano ancora, prova il passo 4.",
-  "Checked: your Starlink router has no IPv6 right now, so all traffic goes through the shared IPv4 address (CGNAT). If videos buffer, try step 4.": "Verificato: il tuo router Starlink ora non ha IPv6, quindi tutto il traffico passa dall'indirizzo IPv4 condiviso (CGNAT). Se i video si bloccano, prova il passo 4."
+  "Checked: your Starlink router has IPv6, so phones on its Wi-Fi usually get it too. If videos still buffer, try a VPN or a firewall app on the phone.": "Verificato: il tuo router Starlink ha IPv6, quindi di solito lo ricevono anche i telefoni sul suo Wi-Fi. Se i video si bloccano ancora, prova una VPN o un'app firewall sul telefono.",
+  "Checked: your Starlink router has no IPv6 right now, so all traffic goes through the shared IPv4 address (CGNAT). If videos buffer, try a VPN or a firewall app on the phone.": "Verificato: il tuo router Starlink ora non ha IPv6, quindi tutto il traffico passa dall'indirizzo IPv4 condiviso (CGNAT). Se i video si bloccano, prova una VPN o un'app firewall sul telefono."
 }
