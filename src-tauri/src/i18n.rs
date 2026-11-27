@@ -248,8 +248,11 @@ catalog!(RuleTexts {
         "Dish not aimed where Starlink recommends",
         "Parabola non orientata come consigliato da Starlink";
     misaligned_detail:
-        "The dish points {az} off in direction and {el} off in tilt from the recommended orientation, more than the {tol}° Starlink tolerates.",
-        "La parabola è spostata di {az} in direzione e di {el} in inclinazione rispetto all'orientamento consigliato, oltre i {tol}° tollerati da Starlink.";
+        "The dish points {az} off in direction and {el} off in tilt from the recommended orientation.",
+        "La parabola è spostata di {az} in direzione e di {el} in inclinazione rispetto all'orientamento consigliato.";
+    misaligned_total:
+        " Combined, it points {total} away from the target, more than the {tol}° Starlink tolerates.",
+        " In totale punta a {total} dall'obiettivo, oltre i {tol}° tollerati da Starlink.";
     rotate_cw: "Rotate the dish {deg} clockwise, seen from above.", "Ruota la parabola di {deg} in senso orario, vista dall'alto.";
     rotate_ccw: "Rotate the dish {deg} counter-clockwise, seen from above.", "Ruota la parabola di {deg} in senso antiorario, vista dall'alto.";
     tilt_up: "Tilt the dish {deg} up.", "Inclina la parabola di {deg} verso l'alto.";

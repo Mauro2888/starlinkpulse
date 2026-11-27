@@ -46,8 +46,20 @@ describe("guided alignment steps", () => {
     expect(g.phase.kind).toBe("holding");
   });
 
+  it("does not drop out of holding for jitter just past the limit", () => {
+    // ~4.8° then ~5.3° combined (tilt only): still holding thanks to the margin; 6° leaves.
+    let g = feed([s(0, 178, 61.2), s(1000, 178, 61.2)]);
+    expect(g.phase.kind).toBe("holding");
+    g = stepGuide(g, s(2000, 178, 60.7));
+    expect(g.phase.kind).toBe("holding");
+    g = feed([s(4000, 178, 60), s(5000, 178, 60)], g);
+    expect(g.phase.kind).toBe("tilt");
+  });
+
   it("goes back to direction if the dish drifts out of tolerance", () => {
-    const g = feed([s(0, 177.5, 66), s(1000, 177.5, 66), s(3000, 175, 66), s(5000, 172.5, 66), s(7000, 170, 66), s(9000, 167.5, 66), s(11000, 165, 66)]);
+    // Low target (30°) so a few degrees of azimuth matter; 2.5° steps 2 s apart are not a jump.
+    const low = { desiredEl: 30 };
+    const g = feed([s(0, 177.5, 30, low), s(1000, 177.5, 30, low), s(3000, 175, 30, low), s(5000, 172.5, 30, low), s(7000, 170, 30, low)]);
     expect(g.phase.kind).toBe("direction");
   });
 

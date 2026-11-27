@@ -250,14 +250,16 @@ pub fn evaluate(s: &DiagnosticSummary, ctx: &RuleContext) -> RulesOutcome {
                 Cat::Configuration,
                 Sev::Warning,
                 t.misaligned_title,
-                fill(
-                    t.misaligned_detail,
-                    &[
-                        ("az", &az),
-                        ("el", &el),
-                        ("tol", &dec_trim(lang, ALIGN_TOTAL_TOL_DEG, 1)),
-                    ],
-                ),
+                fill(t.misaligned_detail, &[("az", &az), ("el", &el)])
+                    + &s.pointing_error_deg.map_or(String::new(), |e| {
+                        fill(
+                            t.misaligned_total,
+                            &[
+                                ("total", &fm.deg(e)),
+                                ("tol", &dec_trim(lang, ALIGN_TOTAL_TOL_DEG, 1)),
+                            ],
+                        )
+                    }),
                 &all,
             ));
         }
@@ -655,6 +657,9 @@ mod tests {
         let o = evaluate(&s, &manual());
         let a = find(&o, "Dish not aimed where Starlink recommends").unwrap();
         assert_eq!(a.actions.len(), 3, "rotate + tilt + confirm");
+        assert!(a.detail.ends_with(
+            "Combined, it points 5.1° away from the target, more than the 5° Starlink tolerates."
+        ));
         s.pointing_error_deg = None;
         // Within tolerance: nothing at all.
         s.azimuth_correction_deg = Some(1.0);

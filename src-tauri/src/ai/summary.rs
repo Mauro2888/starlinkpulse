@@ -213,7 +213,8 @@ pub fn build_summary<Tz: chrono::TimeZone>(inp: &SummaryInputs<'_>, tz: &Tz) -> 
                     a.desired_elevation_deg?,
                 ))
             })
-            .map(|d| round(d, 1)),
+            // Not rounded: the rule compares it with the same 5° limit as the UI.
+            .map(|d| round(d, 3)),
         is_simulated: caps.is_some_and(|c| c.is_mock),
         weakest_wifi_signal_dbm: weakest_signal_dbm(inp.wifi_clients),
         // Filled by the caller from the rule engine when building the AI payload.

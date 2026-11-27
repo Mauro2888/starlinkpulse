@@ -50,7 +50,8 @@ Same convention as the UI alignment helper:
   reports of when the Starlink app warns; it is not an official figure. Within it, the UI shows
   both axes as good, and the step-by-step guide (`align-guide.ts`) counts as on target. The
   2° / 1° per-axis tolerances only pick which rotate/tilt instruction to give while the dish is
-  off target.
+  off target. Once on target, the guide only leaves it above 5.5° so reading jitter does not restart the
+  10 s countdown. The AI system prompt states the same 5° rule.
 
 ## Output
 

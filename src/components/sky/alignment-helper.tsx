@@ -1,7 +1,7 @@
 import { CircleCheck, Compass, Footprints } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { AlignmentStats } from "@/types/models";
-import { ALIGNED_TOLERANCE_DEG, alignmentGuidance, AZ_TOLERANCE_DEG, EL_TOLERANCE_DEG, normalizeAzimuth } from "@/lib/sky";
+import { ALIGNED_TOLERANCE_DEG, alignmentGuidance, AZ_TOLERANCE_DEG, normalizeAzimuth } from "@/lib/sky";
 import { fmtNum, isNum } from "@/lib/format";
 import { useTranslation } from "react-i18next";
 import { tr } from "@/i18n";
@@ -13,12 +13,14 @@ function polar(azDeg: number, r: number): [number, number] {
 }
 
 /** Compass dial: needle = where the dish faces now, dot = where it should face. */
-function Dial({ current, desired }: { current: number; desired: number }) {
+function Dial({ current, desired, desiredEl }: { current: number; desired: number; desiredEl: number | null }) {
   const [nx, ny] = polar(current, 34);
   const [dx, dy] = polar(desired, 40);
-  // Tolerance wedge around the desired azimuth.
-  const [t1x, t1y] = polar(desired - AZ_TOLERANCE_DEG * 2, 44);
-  const [t2x, t2y] = polar(desired + AZ_TOLERANCE_DEG * 2, 44);
+  // Tolerance wedge: azimuth offset that alone reaches the combined limit at this elevation.
+  const half =
+    desiredEl !== null ? Math.min(60, ALIGNED_TOLERANCE_DEG / Math.max(0.1, Math.cos((desiredEl * Math.PI) / 180))) : AZ_TOLERANCE_DEG;
+  const [t1x, t1y] = polar(desired - half, 44);
+  const [t2x, t2y] = polar(desired + half, 44);
   return (
     <svg viewBox="-6 -6 112 112" className="size-24 shrink-0 overflow-visible" aria-hidden>
       <circle cx={50} cy={50} r={44} fill="var(--muted)" fillOpacity={0.4} stroke="var(--border)" />
@@ -55,7 +57,7 @@ function ElevationBar({ current, desired }: { current: number; desired: number }
     <div className="relative mt-1 h-2 w-full rounded-full bg-muted" aria-hidden>
       <div
         className="absolute inset-y-0 rounded-full bg-primary/25"
-        style={{ left: pct(desired - EL_TOLERANCE_DEG), width: `${((EL_TOLERANCE_DEG * 2) / 90) * 100}%` }}
+        style={{ left: pct(desired - ALIGNED_TOLERANCE_DEG), width: `${((ALIGNED_TOLERANCE_DEG * 2) / 90) * 100}%` }}
       />
       <div className="absolute top-1/2 size-2.5 -translate-1/2 rounded-full bg-primary ring-2 ring-card" style={{ left: pct(desired) }} />
       <div className="absolute top-1/2 h-3.5 w-0.5 -translate-1/2 rounded-full bg-foreground" style={{ left: pct(current) }} />
@@ -78,7 +80,11 @@ export function AlignmentHelper({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-3.5">
-        <Dial current={normalizeAzimuth(alignment.azimuthDeg)} desired={normalizeAzimuth(alignment.desiredAzimuthDeg)} />
+        <Dial
+          current={normalizeAzimuth(alignment.azimuthDeg)}
+          desired={normalizeAzimuth(alignment.desiredAzimuthDeg)}
+          desiredEl={isNum(alignment.desiredElevationDeg) ? alignment.desiredElevationDeg : null}
+        />
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           {g.aligned ? (
             <p className="flex items-center gap-2 text-sm font-medium">

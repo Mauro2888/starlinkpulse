@@ -8,6 +8,8 @@ export const UNCERTAINTY_LIMIT_DEG = 1.5;
 export const JUMP_LIMIT_DEG = 3;
 export const JUMP_WINDOW_MS = 2_000;
 export const HOLD_TO_FINISH_MS = 10_000;
+/** Once on target, stay there until the error passes the limit by this much (reading jitter). */
+export const LEAVE_MARGIN_DEG = 0.5;
 
 export interface AlignSample {
   t: number;
@@ -100,9 +102,10 @@ export function stepGuide(prev: GuideState, sample: AlignSample | null): GuideSt
   const start = prev.start ?? { az: sample.az, el: sample.el };
   const dAz = azimuthDelta(sample.az, sample.desiredAz);
   const dEl = sample.el !== null && sample.desiredEl !== null ? sample.desiredEl - sample.el : 0;
+  const limit = ALIGNED_TOLERANCE_DEG + (prev.inToleranceSince !== null ? LEAVE_MARGIN_DEG : 0);
   const onTarget =
     sample.el !== null && sample.desiredEl !== null
-      ? pointingErrorDeg(sample.az, sample.el, sample.desiredAz, sample.desiredEl) <= ALIGNED_TOLERANCE_DEG
+      ? pointingErrorDeg(sample.az, sample.el, sample.desiredAz, sample.desiredEl) <= limit
       : Math.abs(dAz) <= AZ_TOLERANCE_DEG;
   // Off target, the axis that is clearly off gets the instruction.
   const azOk = onTarget || Math.abs(dAz) <= AZ_TOLERANCE_DEG;

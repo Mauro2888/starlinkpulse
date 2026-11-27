@@ -37,7 +37,10 @@ without motors) a large aiming correction. `azimuthCorrectionDeg` and \
 `elevationCorrectionDeg` are the correction to APPLY (recommended minus actual): a positive \
 azimuth correction means rotate the dish clockwise seen from above, negative means \
 counter-clockwise; a positive elevation correction means tilt up, negative means tilt down. \
-Use these signs exactly; never invert them.
+Use these signs exactly; never invert them. \
+Judge alignment on `pointingErrorDeg`, the combined angle between where the dish points and \
+where Starlink recommends: up to 5° counts as aligned, even when one axis alone is off by more \
+(azimuth offsets shrink at high elevation). Only suggest rotating or tilting above 5°.
 - `isSimulated: true` means the data comes from the built-in simulator, not a real dish; \
 say so in the headline.
 - Starlink network or congestion: high latency or drop rate in evening hours (`worstHours`, \
