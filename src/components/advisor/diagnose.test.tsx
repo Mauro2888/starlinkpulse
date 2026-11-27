@@ -36,6 +36,7 @@ const summary: DiagnosticSummary = {
   throttledMinutes: 0,
   azimuthCorrectionDeg: null,
   elevationCorrectionDeg: null,
+  pointingErrorDeg: null,
   isSimulated: false,
   weakestWifiSignalDbm: null,
   ruleFindings: [finding],

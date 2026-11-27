@@ -138,6 +138,15 @@ export function summarizeObstructionMap(map: ObstructionMap): MapSummary {
 
 export const AZ_TOLERANCE_DEG = 2;
 export const EL_TOLERANCE_DEG = 1;
+/** Combined pointing error the Starlink app tolerates (~5°, third-party reports). Same as rules.rs. */
+export const ALIGNED_TOLERANCE_DEG = 5;
+
+/** Great-circle angle between two (azimuth, elevation) directions, in degrees. */
+export function pointingErrorDeg(az: number, el: number, desiredAz: number, desiredEl: number): number {
+  const r = Math.PI / 180;
+  const c = Math.sin(el * r) * Math.sin(desiredEl * r) + Math.cos(el * r) * Math.cos(desiredEl * r) * Math.cos((desiredAz - az) * r);
+  return Math.acos(Math.min(1, Math.max(-1, c))) / r;
+}
 
 /** Signed shortest rotation from `from` to `to`, in (-180, 180]. Positive = clockwise. */
 export function azimuthDelta(from: number, to: number): number {
@@ -155,6 +164,8 @@ export interface AlignmentGuidance {
   azimuth: AxisGuidance;
   elevation: AxisGuidance | null;
   aligned: boolean;
+  /** Both axes combined; null without elevation data. */
+  errorDeg: number | null;
   uncertaintyDeg: number | null;
 }
 
@@ -167,7 +178,13 @@ function deg(n: number): string {
 export function alignmentGuidance(a: AlignmentStats): AlignmentGuidance | null {
   if (!isNum(a.azimuthDeg) || !isNum(a.desiredAzimuthDeg)) return null;
   const dAz = azimuthDelta(a.azimuthDeg, a.desiredAzimuthDeg);
-  const azOk = Math.abs(dAz) <= AZ_TOLERANCE_DEG;
+  const errorDeg =
+    isNum(a.elevationDeg) && isNum(a.desiredElevationDeg)
+      ? pointingErrorDeg(a.azimuthDeg, a.elevationDeg, a.desiredAzimuthDeg, a.desiredElevationDeg)
+      : null;
+  // Within the combined tolerance both axes count as good, even if one is off on its own.
+  const withinTotal = errorDeg !== null && errorDeg <= ALIGNED_TOLERANCE_DEG;
+  const azOk = withinTotal || Math.abs(dAz) <= AZ_TOLERANCE_DEG;
   const target = normalizeAzimuth(a.desiredAzimuthDeg);
   const azimuth: AxisGuidance = {
     delta: dAz,
@@ -190,7 +207,7 @@ export function alignmentGuidance(a: AlignmentStats): AlignmentGuidance | null {
   let elevation: AxisGuidance | null = null;
   if (isNum(a.elevationDeg) && isNum(a.desiredElevationDeg)) {
     const dEl = a.desiredElevationDeg - a.elevationDeg;
-    const elOk = Math.abs(dEl) <= EL_TOLERANCE_DEG;
+    const elOk = withinTotal || Math.abs(dEl) <= EL_TOLERANCE_DEG;
     elevation = {
       delta: dEl,
       ok: elOk,
@@ -205,7 +222,8 @@ export function alignmentGuidance(a: AlignmentStats): AlignmentGuidance | null {
   return {
     azimuth,
     elevation,
-    aligned: azOk && (elevation?.ok ?? true),
+    aligned: errorDeg !== null ? withinTotal : azOk,
+    errorDeg,
     uncertaintyDeg: isNum(a.uncertaintyDeg) ? a.uncertaintyDeg : null,
   };
 }

@@ -172,6 +172,7 @@ pub fn validate_payload(
         -90.0,
         90.0,
     )?;
+    check_range("pointingErrorDeg", p.pointing_error_deg, 0.0, 180.0)?;
     check_range(
         "weakestWifiSignalDbm",
         p.weakest_wifi_signal_dbm,

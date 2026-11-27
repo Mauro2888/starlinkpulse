@@ -38,6 +38,14 @@ pub fn wrap_deg(d: f64) -> f64 {
     if r > 180.0 { r - 360.0 } else { r }
 }
 
+/// Great-circle angle between two (azimuth, elevation) directions, in degrees.
+/// Azimuth differences shrink with elevation, so per-axis checks overstate the error.
+pub fn pointing_error_deg(az: f64, el: f64, desired_az: f64, desired_el: f64) -> f64 {
+    let (e1, e2) = (el.to_radians(), desired_el.to_radians());
+    let cos_d = e1.sin() * e2.sin() + e1.cos() * e2.cos() * (desired_az - az).to_radians().cos();
+    cos_d.clamp(-1.0, 1.0).acos().to_degrees()
+}
+
 fn round(v: f64, decimals: i32) -> f64 {
     let f = 10f64.powi(decimals);
     (v * f).round() / f
@@ -196,6 +204,16 @@ pub fn build_summary<Tz: chrono::TimeZone>(inp: &SummaryInputs<'_>, tz: &Tz) -> 
             align.and_then(|a| a.desired_elevation_deg),
         )
         .map(|d| round(d, 1)),
+        pointing_error_deg: align
+            .and_then(|a| {
+                Some(pointing_error_deg(
+                    a.azimuth_deg?,
+                    a.elevation_deg?,
+                    a.desired_azimuth_deg?,
+                    a.desired_elevation_deg?,
+                ))
+            })
+            .map(|d| round(d, 1)),
         is_simulated: caps.is_some_and(|c| c.is_mock),
         weakest_wifi_signal_dbm: weakest_signal_dbm(inp.wifi_clients),
         // Filled by the caller from the rule engine when building the AI payload.
@@ -345,6 +363,13 @@ mod tests {
         assert_eq!(s.azimuth_correction_deg, Some(10.0));
         // Actual 64°, desired 66.5°: tilt 2.5° up.
         assert_eq!(s.elevation_correction_deg, Some(2.5));
+        assert!(s.pointing_error_deg.is_some());
+        // Real Mini after install: 26.7°/69.4° vs desired 20.0°/66.0° -> ~4.2° combined.
+        assert!((pointing_error_deg(26.7, 69.4, 20.0, 66.0) - 4.2).abs() < 0.1);
+        assert!(
+            pointing_error_deg(359.0, 60.0, 1.0, 60.0) < 1.1,
+            "wraps around north"
+        );
         assert!(!s.is_simulated);
         assert_eq!(s.weakest_wifi_signal_dbm, Some(-77.0));
         assert_eq!(s.hardware_version.as_deref(), Some("mini1_prod2"));

@@ -98,6 +98,15 @@ describe("alignment guidance", () => {
     expect(g.azimuth.ok && g.elevation!.ok).toBe(true);
   });
 
+  it("judges alignment on the combined error, like the Starlink app", () => {
+    // Real Mini after install: 6.7° / 3.4° off per axis, but high in the sky -> ~4.2° in total.
+    const g = alignmentGuidance({ ...base, azimuthDeg: 26.7, desiredAzimuthDeg: 20, elevationDeg: 69.4, desiredElevationDeg: 66 })!;
+    expect(g.errorDeg).toBeCloseTo(4.2, 1);
+    expect(g.aligned).toBe(true);
+    expect(g.azimuth.text).toBe("Direction is good");
+    expect(g.elevation!.text).toBe("Tilt is good");
+  });
+
   it("returns null without azimuth data and skips elevation when missing", () => {
     expect(alignmentGuidance({ ...base, azimuthDeg: null, desiredAzimuthDeg: 178, elevationDeg: 1, desiredElevationDeg: 2 })).toBeNull();
     expect(alignmentGuidance({ ...base, azimuthDeg: 1, desiredAzimuthDeg: 2, elevationDeg: null, desiredElevationDeg: 2 })!.elevation).toBeNull();

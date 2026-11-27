@@ -108,6 +108,7 @@ export interface DiagnosticSummary {
   azimuthCorrectionDeg: number | null;
   /** Correction to apply = desired − actual; positive = tilt up. */
   elevationCorrectionDeg: number | null;
+  pointingErrorDeg: number | null;
   /** True when the data comes from the mock client (simulated). */
   isSimulated: boolean;
   weakestWifiSignalDbm: number | null;

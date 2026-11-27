@@ -20,9 +20,13 @@ pub const OBSTRUCTION_CRIT: f64 = 0.03;
 /// Seconds of OBSTRUCTED outages in 24 h: warning from 30 s, critical from 5 min.
 pub const OBSTRUCTED_OUTAGE_WARN_S: f64 = 30.0;
 pub const OBSTRUCTED_OUTAGE_CRIT_S: f64 = 300.0;
-/// Alignment tolerances (same as the UI helper).
+/// Per-axis tolerances: which rotate/tilt actions to give, and the fallback check when the
+/// combined pointing error is unknown (same as the UI helper).
 pub const ALIGN_AZ_TOL_DEG: f64 = 2.0;
 pub const ALIGN_EL_TOL_DEG: f64 = 1.0;
+/// Combined pointing error above which the dish counts as misaligned. Third-party guides
+/// report ~5° as the point where the Starlink app warns; not an official figure.
+pub const ALIGN_TOTAL_TOL_DEG: f64 = 5.0;
 /// Network-side outages (no obstruction): warning from 60 s, critical from 10 min.
 pub const NETWORK_OUTAGE_WARN_S: f64 = 60.0;
 pub const NETWORK_OUTAGE_CRIT_S: f64 = 600.0;
@@ -222,9 +226,13 @@ pub fn evaluate(s: &DiagnosticSummary, ctx: &RuleContext) -> RulesOutcome {
     let off_el = s
         .elevation_correction_deg
         .is_some_and(|d| d.abs() > ALIGN_EL_TOL_DEG);
+    let misaligned = match s.pointing_error_deg {
+        Some(e) => e > ALIGN_TOTAL_TOL_DEG,
+        None => off_az || off_el,
+    };
     let az = fm.deg(s.azimuth_correction_deg.unwrap_or(0.0));
     let el = fm.deg(s.elevation_correction_deg.unwrap_or(0.0));
-    if ctx.actuators == ActuatorSupport::Unknown && (off_az || off_el) {
+    if ctx.actuators == ActuatorSupport::Unknown && misaligned {
         f.push(finding(
             Cat::Configuration,
             Sev::Info,
@@ -233,7 +241,7 @@ pub fn evaluate(s: &DiagnosticSummary, ctx: &RuleContext) -> RulesOutcome {
             &[t.orientation_unknown_action],
         ));
     }
-    if ctx.actuators == ActuatorSupport::No {
+    if ctx.actuators == ActuatorSupport::No && misaligned {
         let actions = alignment_actions(lang, s.azimuth_correction_deg, s.elevation_correction_deg);
         if !actions.is_empty() {
             let mut all: Vec<&str> = actions.iter().map(String::as_str).collect();
@@ -247,8 +255,7 @@ pub fn evaluate(s: &DiagnosticSummary, ctx: &RuleContext) -> RulesOutcome {
                     &[
                         ("az", &az),
                         ("el", &el),
-                        ("az_tol", &dec_trim(lang, ALIGN_AZ_TOL_DEG, 1)),
-                        ("el_tol", &dec_trim(lang, ALIGN_EL_TOL_DEG, 1)),
+                        ("tol", &dec_trim(lang, ALIGN_TOTAL_TOL_DEG, 1)),
                     ],
                 ),
                 &all,
@@ -625,6 +632,30 @@ mod tests {
                 .all(|a| !a.contains("Rotate") && !a.contains("Tilt"))
         );
         assert!(i.actions[0].starts_with("If your dish has no motors"));
+        // Combined error wins over per-axis checks: the installer's Mini at 69° elevation
+        // (6.7° / 3.3° off per axis) is 4.2° off in total, which the Starlink app calls aligned.
+        s.azimuth_correction_deg = Some(-6.7);
+        s.elevation_correction_deg = Some(-3.3);
+        s.pointing_error_deg = Some(4.2);
+        assert!(
+            find(
+                &evaluate(&s, &manual()),
+                "Dish not aimed where Starlink recommends"
+            )
+            .is_none()
+        );
+        assert!(
+            find(
+                &evaluate(&s, &unknown),
+                "Dish orientation differs from the recommendation"
+            )
+            .is_none()
+        );
+        s.pointing_error_deg = Some(5.1);
+        let o = evaluate(&s, &manual());
+        let a = find(&o, "Dish not aimed where Starlink recommends").unwrap();
+        assert_eq!(a.actions.len(), 3, "rotate + tilt + confirm");
+        s.pointing_error_deg = None;
         // Within tolerance: nothing at all.
         s.azimuth_correction_deg = Some(1.0);
         s.elevation_correction_deg = Some(0.5);

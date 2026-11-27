@@ -19,8 +19,8 @@ of reboots (BOOTING outages) in the window.
 | Limited data | configuration | `historyMinutes` < 720 (12 h) | info |
 | Dish view obstructed | obstruction | `fractionObstructed` > 1 % **or** OBSTRUCTED outages ≥ 30 s | warning |
 | | | `fractionObstructed` > 3 % **or** OBSTRUCTED outages ≥ 300 s | critical |
-| Dish not aimed where Starlink recommends | configuration | dishes known to have **no motors** (`hasActuators = NO`); \|`azimuthCorrectionDeg`\| > 2° or \|`elevationCorrectionDeg`\| > 1° (correction = recommended − actual); gives exact rotate/tilt actions | warning |
-| Dish orientation differs from the recommendation | configuration | motors **unknown**, same thresholds: numbers only, no rotate/tilt instruction ("if your dish has no motors, use the alignment helper"). Dishes with motors: nothing | info |
+| Dish not aimed where Starlink recommends | configuration | dishes known to have **no motors** (`hasActuators = NO`); `pointingErrorDeg` > 5° (fallback when unknown: \|`azimuthCorrectionDeg`\| > 2° or \|`elevationCorrectionDeg`\| > 1°). Rotate/tilt actions for each axis past 2° / 1° | warning |
+| Dish orientation differs from the recommendation | configuration | motors **unknown**, same check: numbers only, no rotate/tilt instruction ("if your dish has no motors, use the alignment helper"). Dishes with motors: nothing | info |
 | Speed limited by your plan | starlink_network | `throttledMinutes` > 0 (POLICY_LIMIT = plan deprioritization or data limit). Detail adds "almost all the time" when ≥ 90 % of recorded minutes (no hour list: deprioritization is not a congestion claim) | info |
 | Outages on the Starlink side | starlink_network | no significant obstruction (see above) and NO_SCHEDULE + NO_DOWNLINK + NO_PINGS + SKY_SEARCH + NETWORK_ISSUE ≥ 60 s. Says "clear view" only when `fractionObstructed` was measured and is ≤ 1 %, otherwise "no significant obstruction was measured"; notes that SKY_SEARCH can follow a restart | warning |
 | | | same, ≥ 600 s | critical |
@@ -44,6 +44,12 @@ Same convention as the UI alignment helper:
 - **Tilt:** `elevationCorrectionDeg` = recommended − actual elevation. Positive means tilt up.
 - The AI system prompt states the same signs, so models never invert the direction.
 - Values ≥ 10° are rounded to whole degrees; smaller values to 0.1°.
+- **Aligned or not:** decided on `pointingErrorDeg`, the great-circle angle between the actual and
+  recommended direction. A per-axis check overstates the error at high elevation (a 6.7° azimuth
+  offset at 69° elevation is about 2.4° of real pointing). The 5° limit comes from third-party
+  reports of when the Starlink app warns; it is not an official figure. Within it, the UI shows
+  both axes as good. The 2° / 1° per-axis tolerances stay for the rotate/tilt actions and the
+  step-by-step alignment guide (`align-guide.ts`), which aims for a precise finish.
 
 ## Output
 

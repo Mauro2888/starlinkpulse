@@ -270,6 +270,8 @@ pub struct DiagnosticSummary {
     pub azimuth_correction_deg: Option<f64>,
     /// Correction to apply = desired − actual; positive = tilt up.
     pub elevation_correction_deg: Option<f64>,
+    /// Angle between the actual and recommended pointing direction (both axes combined).
+    pub pointing_error_deg: Option<f64>,
     /// True when the data comes from the mock client (simulated).
     pub is_simulated: bool,
     /// Weakest Wi-Fi client signal in dBm, if a Starlink router is present.
