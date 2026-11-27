@@ -316,7 +316,6 @@
   "How StarlinkPulse talks to your model server.": "Come StarlinkPulse comunica con il server del modello.",
   "I power the dish from a battery": "Alimento la parabola con una batteria",
   "Idle": "Inattivo",
-  "In Instagram, turn off Data Saver (Settings → Media quality).": "In Instagram, disattiva il Risparmio dati (Impostazioni → Qualità dei contenuti multimediali).",
   "In ocean (plan doesn't cover it)": "In mare aperto (non coperto dal piano)",
   "In position. Hold it there.": "In posizione. Tienila così.",
   "Instagram or Facebook videos keep buffering on phones": "I video di Instagram o Facebook si bloccano sul telefono",
@@ -812,5 +811,15 @@
   "Your API key is managed in the Anthropic API key card.": "La chiave API si gestisce nel riquadro «Chiave API Anthropic».",
   "Your internet connection will drop for about 1 to 3 minutes while the dish restarts and finds satellites again.": "La connessione a internet cadrà per circa 1–3 minuti mentre la parabola si riavvia e ritrova i satelliti.",
   "Your local model is reviewing the findings": "Il modello locale sta esaminando i risultati",
-  "Your plan is not limiting speed right now.": "Il tuo piano non sta limitando la velocità in questo momento."
+  "Your plan is not limiting speed right now.": "Il tuo piano non sta limitando la velocità in questo momento.",
+  "Internet": "Internet",
+  "Online": "Online",
+  "Active": "Attivo",
+  "Not active": "Non attivo",
+  "Router → dish": "Router → parabola",
+  "Router → Starlink": "Router → Starlink",
+  "Cable between the Starlink router and the dish.": "Cavo tra il router Starlink e la parabola.",
+  "Through the satellite to Starlink's network.": "Attraverso il satellite fino alla rete Starlink.",
+  "Checked: your Starlink router has IPv6, so phones on its Wi-Fi can already reach Meta over IPv6. If videos still buffer, try step 4.": "Verificato: il tuo router Starlink ha IPv6, quindi i telefoni sul suo Wi-Fi possono già raggiungere Meta via IPv6. Se i video si bloccano ancora, prova il passo 4.",
+  "Checked: your Starlink router has no IPv6 right now, so all traffic goes through the shared IPv4 address (CGNAT). If videos buffer, try step 4.": "Verificato: il tuo router Starlink ora non ha IPv6, quindi tutto il traffico passa dall'indirizzo IPv4 condiviso (CGNAT). Se i video si bloccano, prova il passo 4."
 }

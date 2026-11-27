@@ -13,8 +13,8 @@ use serde_json::Value;
 use super::{DeviceInfo, DeviceName, DishHistory, DishStatus, WifiClientInfo};
 use crate::error::ClientError;
 use crate::models::{
-    ActuatorSupport, AlignmentStats, DishEvent, ObstructionMap, ObstructionStats, SnowMeltMode,
-    TelemetrySnapshot,
+    ActuatorSupport, AlignmentStats, DishEvent, ObstructionMap, ObstructionStats, RouterStatus,
+    SnowMeltMode, TelemetrySnapshot,
 };
 use crate::time::{ns_to_unix_ms_auto, unix_ns_to_ms};
 
@@ -436,6 +436,28 @@ pub fn parse_wifi_clients(body: &Value) -> Vec<WifiClientInfo> {
         .unwrap_or_default()
 }
 
+// ---------------------------------------------------------------------------
+// Router: get_status (+ wifi_guest_info.isOnline)
+// ---------------------------------------------------------------------------
+
+/// Parses the body of `wifiGetStatus`. Addresses are reduced to a bool, never copied.
+pub fn parse_router_status(body: &Value, online: Option<bool>) -> RouterStatus {
+    let ipv6 = body
+        .get("ipv6WanAddresses")
+        .and_then(Value::as_array)
+        .is_some_and(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .any(|s| matches!(s.as_bytes().first(), Some(b'2' | b'3')))
+        });
+    RouterStatus {
+        online,
+        ipv6,
+        dish_ping_ms: num(body.get("dishPingLatencyMs")),
+        pop_ping_ms: num(body.get("popPingLatencyMs")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -640,6 +662,23 @@ mod tests {
         assert!((c.rx_throughput_mbps.unwrap() - 0.0758).abs() < 1e-9);
         let neg = json!({ "clients": [{ "txStats": { "throughputMbpsLast15sAvg": -0.5 } }] });
         assert_eq!(parse_wifi_clients(&neg)[0].tx_throughput_mbps, Some(0.0));
+    }
+
+    #[test]
+    fn router_status_reduces_ipv6_to_bool() {
+        let body = json!({
+            "ipv6WanAddresses": ["fe80::1/64", "2a0d:1234::1/64"],
+            "dishPingLatencyMs": 0.5,
+            "popPingLatencyMs": "16.1",
+        });
+        let r = parse_router_status(&body, Some(true));
+        assert!(r.ipv6);
+        assert_eq!(r.online, Some(true));
+        assert_eq!(r.dish_ping_ms, Some(0.5));
+        assert_eq!(r.pop_ping_ms, Some(16.1));
+        // Link-local only (or absent) is not IPv6 internet.
+        assert!(!parse_router_status(&json!({"ipv6WanAddresses": ["fe80::1"]}), None).ipv6);
+        assert!(!parse_router_status(&json!({}), None).ipv6);
     }
 
     #[test]

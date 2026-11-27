@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ArrowDown, ArrowUp, Lightbulb, Router, ShieldCheck, WifiOff } from "lucide-react";
-import type { WifiDevice, WifiDevices, WifiQuality } from "@/types/models";
+import type { RouterStatus, WifiDevice, WifiDevices, WifiQuality } from "@/types/models";
 import { api } from "@/lib/api";
 import { normalizeError, type ApiError } from "@/lib/errors";
 import { EM_DASH, fmtNum, formatAgo, formatBps, isNum } from "@/lib/format";
@@ -121,6 +121,7 @@ export function WifiDevicesView({ data, error }: { data: WifiDevices | null; err
             : t("Not updated, showing the last data received")}
         </p>
       )}
+      {data?.available && data.router && <RouterLine r={data.router} />}
       <div className={cn(stale && "opacity-60")}>{body}</div>
       {tip && (
         <p className="mt-2.5 flex items-start gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs leading-relaxed ring-1 ring-warning/30">
@@ -135,6 +136,36 @@ export function WifiDevicesView({ data, error }: { data: WifiDevices | null; err
         </p>
       )}
     </Section>
+  );
+}
+
+/** Router's own link check: internet, IPv6 and latency split into home side vs satellite side. */
+function RouterLine({ r }: { r: RouterStatus }) {
+  const { t } = useTranslation();
+  const ms = (v: number | null) => (isNum(v) ? `${fmtNum(v, v < 10 ? 1 : 0)} ms` : EM_DASH);
+  return (
+    <dl className="mb-2.5 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+      {r.online !== null && (
+        <div className="flex gap-1.5">
+          <dt className="text-muted-foreground">{t("Internet")}</dt>
+          <dd className={cn("font-medium", r.online ? "text-good" : "text-critical")}>
+            {r.online ? t("Online") : t("Offline")}
+          </dd>
+        </div>
+      )}
+      <div className="flex gap-1.5">
+        <dt className="text-muted-foreground">IPv6</dt>
+        <dd className="font-medium">{r.ipv6 ? t("Active") : t("Not active")}</dd>
+      </div>
+      <div className="flex gap-1.5" title={t("Cable between the Starlink router and the dish.")}>
+        <dt className="text-muted-foreground">{t("Router → dish")}</dt>
+        <dd className="num font-medium">{ms(r.dishPingMs)}</dd>
+      </div>
+      <div className="flex gap-1.5" title={t("Through the satellite to Starlink's network.")}>
+        <dt className="text-muted-foreground">{t("Router → Starlink")}</dt>
+        <dd className="num font-medium">{ms(r.popPingMs)}</dd>
+      </div>
+    </dl>
   );
 }
 

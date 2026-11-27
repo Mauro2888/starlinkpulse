@@ -331,6 +331,7 @@ async fn session(state: &Arc<AppState>, settings: &Settings, sink: &Arc<dyn Even
     // Wi-Fi clients belong to the previous connection.
     state.wifi_clients.write().await.clear();
     *state.wifi_updated_ms.write().await = None;
+    *state.router_status.write().await = None;
     let mut router = router;
     detect_capabilities(state, sink, &client, router.is_some(), session_id).await;
     check_data_cap(state, sink, client.is_mock()).await;
@@ -380,6 +381,10 @@ async fn session(state: &Arc<AppState>, settings: &Settings, sink: &Arc<dyn Even
                             router_misses = 0;
                             *state.wifi_clients.write().await = clients;
                             *state.wifi_updated_ms.write().await = Some(now_ms());
+                            // Best effort: a failed status read keeps the previous value.
+                            if let Ok(Ok(st)) = tokio::time::timeout(ROUTER_POLL_TIMEOUT, r.router_status()).await {
+                                *state.router_status.write().await = Some(st);
+                            }
                         }
                         Err(e) => {
                             router_misses += 1;
@@ -388,6 +393,7 @@ async fn session(state: &Arc<AppState>, settings: &Settings, sink: &Arc<dyn Even
                                 router = None;
                                 state.wifi_clients.write().await.clear();
                                 *state.wifi_updated_ms.write().await = None;
+                                *state.router_status.write().await = None;
                                 state.capabilities.write().await.has_router = false;
                                 let caps = state.capabilities.read().await.clone();
                                 sink.capabilities(&caps);

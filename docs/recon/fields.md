@@ -59,6 +59,11 @@ Only read-only requests were used. Device IDs, router IDs, MAC/IP addresses, cli
 Useful non-PII fields: `iface`, `role`, `signalStrength` (dBm, not present on wired/mesh entries), `snr`, `channelWidth`, `estRxRateMbpsFromController`, `estTxRateMbpsFromController`, `associatedTimeS`, `hopsFromController`, `rxStats`, `txStats`.
 **PII** (never send to AI/logs): `name`, `macAddress`, `ipAddress`, `ipv6Addresses`, `deviceId`, `clientId`, `upstreamMacAddress`, `domain`.
 
+## Router `192.168.1.1:9000` — `get_status` → `wifiGetStatus` (checked 2026-11-27)
+Used: `dishPingLatencyMs`, `popPingLatencyMs`, `ipv6WanAddresses` (reduced to a bool). Also present: `pingLatencyMs`, `popIpv6PingLatencyMs`, `ipv4WanAddress` (CGNAT 100.64/10), `publicIpv4`, `secsSinceLastPublicIpv4Change`, `deviceState.uptimeS`, `alerts`, `clients`.
+`wifi_guest_info` → `wifiGuestInfo`: `isOnline`, `routerHardwareVersion`, `dishHardwareVersion`.
+`PermissionDenied` on the router: `wifi_get_ping_metrics`, `wifi_backhaul_stats`, `wifi_get_channels`. On the dish (Mini, same date): `get_location` (policy), `dish_get_context`, `dish_get_data`, `dish_get_emc`; `Unimplemented`: `get_ping`, `get_radio_stats`, `get_network_interfaces`, `get_connections`, `get_persistent_stats`, `get_gnss_measurement`.
+
 ## Request oneof (schema)
 The `Request` message lists ~100 request types **regardless of model** (e.g. `dish_stow` is present on a Mini without actuators; `start_speedtest`/`get_speedtest_status` present, but the skill notes `speed_test` returns `Unimplemented`).
 → Presence in schema is **not** sufficient for capability detection. Combine with status fields (`hasActuators`) and handle `Unimplemented` / `PermissionDenied` at runtime.

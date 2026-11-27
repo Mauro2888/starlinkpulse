@@ -622,6 +622,7 @@ pub async fn wifi_devices(state: &AppState) -> crate::models::WifiDevices {
         available,
         devices: crate::wifi::devices(&state.wifi_clients.read().await),
         updated_ms: *state.wifi_updated_ms.read().await,
+        router: state.router_status.read().await.clone(),
     }
 }
 
@@ -1086,8 +1087,14 @@ mod tests {
             .await
             .unwrap();
         *state.wifi_updated_ms.write().await = Some(1);
+        *state.router_status.write().await = Some(
+            crate::dish::RouterClient::router_status(mock.as_ref())
+                .await
+                .unwrap(),
+        );
         let w = wifi_devices(&state).await;
         assert!(w.available);
+        assert!(w.router.as_ref().is_some_and(|r| r.ipv6));
         assert_eq!(w.updated_ms, Some(1));
         assert_eq!(w.devices.len(), 6, "router itself excluded");
         assert!(w.devices.iter().all(|d| d.name.is_some()));

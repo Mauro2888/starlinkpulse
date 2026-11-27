@@ -837,6 +837,19 @@ impl RouterClient for MockClient {
             wifi("Tablet", "RF_5GHZ", -58.0, 200.0, 6),
         ])
     }
+
+    async fn router_status(&self) -> Result<crate::models::RouterStatus, ClientError> {
+        if !self.has_router() {
+            return Err(ClientError::Unreachable("no mock router".into()));
+        }
+        let now_s = now_ms() / 1000;
+        Ok(crate::models::RouterStatus {
+            online: Some(true),
+            ipv6: true,
+            dish_ping_ms: Some(0.5),
+            pop_ping_ms: Some((26.0 + 4.0 * gauss(now_s / 15, 91)).max(18.0)),
+        })
+    }
 }
 
 #[cfg(test)]

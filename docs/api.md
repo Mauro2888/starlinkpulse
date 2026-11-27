@@ -92,6 +92,11 @@ All commands are async and return `Result<T, CommandError>`; arguments are camel
   reported, e.g. ethernet). Direction: router `rxStats` = device **upload**, `txStats` = device
   **download** (`rateMbps` → link speed, `throughputMbpsLast15sAvg` clamped ≥ 0 → Mbps,
   `bytes` → traffic). In Rust the name is a `DeviceName` (redacted `Debug`, `#[serde(skip)]`).
+- **Router status** (`get_wifi_devices.router`, same 15 s poll, best effort): router `get_status`
+  → `dishPingLatencyMs` (router → dish), `popPingLatencyMs` (router → Starlink PoP), and `ipv6`
+  = any `ipv6WanAddresses` entry in 2000::/3 (addresses are never copied). `online` from
+  `wifi_guest_info.isOnline` (omitted = false; `null` when the request fails). Shown as one line
+  in the Wi-Fi card and used by the Diagnose "Common problems" IPv6 hint.
 - **Support report:** app version, hardware/firmware, motors, 24 h coverage, uptime 24h/7d/30d,
   last-24 h latency avg/p95, ping loss, obstruction, throttled minutes, active alerts, outages of
   the last 48 h (totals by cause + newest 50 rows), rule-engine findings, Wi-Fi counts per band /

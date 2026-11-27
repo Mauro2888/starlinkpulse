@@ -12,11 +12,12 @@ const BASE: WifiDevice[] = [
 ];
 
 export function mockWifi(p: ProfileSpec): WifiDevices {
-  if (!p.capabilities.hasRouter) return { available: false, devices: [], updatedMs: null };
+  if (!p.capabilities.hasRouter) return { available: false, devices: [], updatedMs: null, router: null };
   const j = () => 0.7 + Math.random() * 0.6;
   return {
     available: true,
     updatedMs: Date.now(),
+    router: { online: true, ipv6: true, dishPingMs: 0.5, popPingMs: +(p.latencyMs * j()).toFixed(1) },
     devices: BASE.map((d) => ({
       ...d,
       downMbps: d.downMbps == null ? null : +(d.downMbps * j()).toFixed(1),

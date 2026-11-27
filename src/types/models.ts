@@ -195,6 +195,19 @@ export interface WifiDevices {
   available: boolean;
   devices: WifiDevice[];
   updatedMs: number | null;
+  /** Starlink router's own view of the link; null until first read. */
+  router: RouterStatus | null;
+}
+
+export interface RouterStatus {
+  /** Router reports internet access; null if the firmware doesn't say. */
+  online: boolean | null;
+  /** Router has a global IPv6 WAN address. */
+  ipv6: boolean;
+  /** Router to dish (home side). */
+  dishPingMs: number | null;
+  /** Router to Starlink's point of presence (through the satellite). */
+  popPingMs: number | null;
 }
 
 export type AiProvider = "off" | "claude" | "local";

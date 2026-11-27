@@ -172,6 +172,7 @@ pub trait StarlinkClient: Send + Sync {
 #[async_trait]
 pub trait RouterClient: Send + Sync {
     async fn wifi_clients(&self) -> Result<Vec<WifiClientInfo>, ClientError>;
+    async fn router_status(&self) -> Result<crate::models::RouterStatus, ClientError>;
 }
 
 #[cfg(test)]

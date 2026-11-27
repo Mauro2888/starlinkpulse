@@ -122,6 +122,31 @@ describe("Diagnose tab", () => {
     expect(screen.getByText("Saved rules report")).toBeInTheDocument();
   });
 
+  it("shows the common problems guide even without enough history, collapsed until clicked", async () => {
+    fake({ run_diagnostics: async () => Promise.reject({ kind: "insufficient_data" }) });
+    const { user } = renderTab("off");
+    expect(await screen.findByText("Not enough history yet")).toBeInTheDocument();
+    const summaryEl = screen.getByText("Instagram or Facebook videos keep buffering on phones");
+    const details = summaryEl.closest("details")!;
+    expect(details).not.toHaveAttribute("open");
+    await user.click(summaryEl);
+    expect(details).toHaveAttribute("open");
+    expect(within(details).getAllByRole("listitem")).toHaveLength(4);
+  });
+
+  it("tells whether the Starlink router has IPv6 in the buffering guide", async () => {
+    fake({
+      get_wifi_devices: async () => ({
+        available: true,
+        devices: [],
+        updatedMs: 1,
+        router: { online: true, ipv6: true, dishPingMs: 0.5, popPingMs: 20 },
+      }),
+    });
+    renderTab("off");
+    expect(await screen.findByText(/your Starlink router has IPv6/)).toBeInTheDocument();
+  });
+
   it("hides 'Explain with AI' when AI is off and offers to turn it on", async () => {
     fake();
     const { user, onOpenAiSettings } = renderTab("off");

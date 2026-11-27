@@ -462,6 +462,23 @@ pub struct WifiDevices {
     pub available: bool,
     pub devices: Vec<WifiDevice>,
     pub updated_ms: Option<i64>,
+    /// Starlink router's own view of the link; `None` until first read.
+    pub router: Option<RouterStatus>,
+}
+
+/// Read-only summary of the Starlink router's `get_status` / `wifi_guest_info`.
+/// No addresses are kept, only whether a global IPv6 address exists.
+#[derive(Debug, Clone, PartialEq, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RouterStatus {
+    /// Router reports internet access (`wifi_guest_info.isOnline`); `None` if not readable.
+    pub online: Option<bool>,
+    /// Router has a global IPv6 WAN address (2000::/3).
+    pub ipv6: bool,
+    /// Router to dish (cable / home side).
+    pub dish_ping_ms: Option<f64>,
+    /// Router to Starlink's point of presence (through the satellite).
+    pub pop_ping_ms: Option<f64>,
 }
 
 /// Desktop notification preferences.

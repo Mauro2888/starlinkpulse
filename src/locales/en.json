@@ -316,7 +316,6 @@
   "How StarlinkPulse talks to your model server.": "How StarlinkPulse talks to your model server.",
   "I power the dish from a battery": "I power the dish from a battery",
   "Idle": "Idle",
-  "In Instagram, turn off Data Saver (Settings → Media quality).": "In Instagram, turn off Data Saver (Settings → Media quality).",
   "In ocean (plan doesn't cover it)": "In ocean (plan doesn't cover it)",
   "In position. Hold it there.": "In position. Hold it there.",
   "Instagram or Facebook videos keep buffering on phones": "Instagram or Facebook videos keep buffering on phones",
@@ -812,5 +811,15 @@
   "Your API key is managed in the Anthropic API key card.": "Your API key is managed in the Anthropic API key card.",
   "Your internet connection will drop for about 1 to 3 minutes while the dish restarts and finds satellites again.": "Your internet connection will drop for about 1 to 3 minutes while the dish restarts and finds satellites again.",
   "Your local model is reviewing the findings": "Your local model is reviewing the findings",
-  "Your plan is not limiting speed right now.": "Your plan is not limiting speed right now."
+  "Your plan is not limiting speed right now.": "Your plan is not limiting speed right now.",
+  "Internet": "Internet",
+  "Online": "Online",
+  "Active": "Active",
+  "Not active": "Not active",
+  "Router → dish": "Router → dish",
+  "Router → Starlink": "Router → Starlink",
+  "Cable between the Starlink router and the dish.": "Cable between the Starlink router and the dish.",
+  "Through the satellite to Starlink's network.": "Through the satellite to Starlink's network.",
+  "Checked: your Starlink router has IPv6, so phones on its Wi-Fi can already reach Meta over IPv6. If videos still buffer, try step 4.": "Checked: your Starlink router has IPv6, so phones on its Wi-Fi can already reach Meta over IPv6. If videos still buffer, try step 4.",
+  "Checked: your Starlink router has no IPv6 right now, so all traffic goes through the shared IPv4 address (CGNAT). If videos buffer, try step 4.": "Checked: your Starlink router has no IPv6 right now, so all traffic goes through the shared IPv4 address (CGNAT). If videos buffer, try step 4."
 }

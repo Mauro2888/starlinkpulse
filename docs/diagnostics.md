@@ -84,8 +84,9 @@ samples of the last 2 minutes:
 ## Common problems (static guide)
 
 Below the report, the Diagnose tab shows a short "Common problems" guide. It is static text in
-the frontend (`src/components/advisor/common-problems.tsx`): no detection, no network calls,
-and it is shown even without enough history.
+the frontend (`src/components/advisor/common-problems.tsx`), shown even without enough history.
+The only detection: with a Starlink router, the buffering entry says whether the router has a
+global IPv6 address (read-only router `get_status`, see docs/api.md). No internet requests.
 
 ### Instagram / Facebook videos buffering on phones
 

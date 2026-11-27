@@ -49,6 +49,7 @@ describe("WifiDevicesView", () => {
         data={{
           available: true,
           updatedMs: 0,
+          router: { online: true, ipv6: false, dishPingMs: 0.5, popPingMs: 23.4 },
           devices: [dev({ signalDbm: -90 }), dev({ role: "REPEATER", signalDbm: -60 }), dev({ name: "Laptop", signalDbm: -50 })],
         }}
       />,
@@ -58,10 +59,13 @@ describe("WifiDevicesView", () => {
     expect(screen.getByText("Laptop")).toBeInTheDocument();
     expect(screen.getByText(/1 weak signal/)).toBeInTheDocument();
     expect(screen.getByText(/never saved/)).toBeInTheDocument();
+    expect(screen.getByText("Online")).toBeInTheDocument();
+    expect(screen.getByText("Not active")).toBeInTheDocument();
+    expect(screen.getByText("23 ms")).toBeInTheDocument();
   });
 
   it("shows the unavailable state without a router", () => {
-    render(<WifiDevicesView error={null} data={{ available: false, devices: [], updatedMs: null }} />);
+    render(<WifiDevicesView error={null} data={{ available: false, devices: [], updatedMs: null, router: null }} />);
     expect(screen.getByText("Starlink router not reachable")).toBeInTheDocument();
   });
 });

@@ -1,11 +1,15 @@
+import { useEffect, useState } from "react";
 import { ChevronDown, LifeBuoy } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { tk } from "@/i18n/keys";
+import { api } from "@/lib/api";
 
 interface Problem {
   title: string;
   intro: string;
   steps: string[];
+  /** Shows the Starlink router's IPv6 state, when known. */
+  ipv6Hint?: boolean;
 }
 
 const PROBLEMS: Problem[] = [
@@ -16,7 +20,6 @@ const PROBLEMS: Problem[] = [
     ),
     steps: [
       tk("Check it's the network: if videos play fine on mobile data but buffer on Starlink Wi-Fi, keep going."),
-      tk("In Instagram, turn off Data Saver (Settings → Media quality)."),
       tk(
         "Using your own router (Starlink in bypass mode)? Turn on IPv6 (often called DHCPv6 prefix delegation). Starlink provides IPv6 and Meta's servers support it, so traffic skips Starlink's shared IPv4 address (CGNAT).",
       ),
@@ -27,12 +30,25 @@ const PROBLEMS: Problem[] = [
         "Without a router change: use a VPN on the phone, or on Android a firewall app that can block UDP for Instagram and Facebook. iOS has no setting for this.",
       ),
     ],
+    ipv6Hint: true,
   },
 ];
 
-/** Static, collapsible help for known issues the dish data cannot show. No detection, no network. */
+/** Collapsible help for known issues the dish data cannot show. Only reads the local router's IPv6 state. */
 export function CommonProblems() {
   const { t } = useTranslation();
+  // null: no Starlink router (third-party router / bypass) or not read yet.
+  const [ipv6, setIpv6] = useState<boolean | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api.getWifiDevices().then(
+      (w) => alive && setIpv6(w.available && w.router ? w.router.ipv6 : null),
+      () => {},
+    );
+    return () => {
+      alive = false;
+    };
+  }, []);
   return (
     <section aria-labelledby="common-problems-title" className="flex flex-col gap-2">
       <h2 id="common-problems-title" className="eyebrow px-1">
@@ -47,6 +63,13 @@ export function CommonProblems() {
           </summary>
           <div className="flex flex-col gap-2 border-t border-border px-3.5 py-3 text-xs leading-relaxed">
             <p className="text-muted-foreground">{t(p.intro)}</p>
+            {p.ipv6Hint && ipv6 !== null && (
+              <p role="status" className="rounded-lg bg-muted/40 px-2.5 py-1.5">
+                {ipv6
+                  ? t("Checked: your Starlink router has IPv6, so phones on its Wi-Fi can already reach Meta over IPv6. If videos still buffer, try step 4.")
+                  : t("Checked: your Starlink router has no IPv6 right now, so all traffic goes through the shared IPv4 address (CGNAT). If videos buffer, try step 4.")}
+              </p>
+            )}
             <ol className="flex list-decimal flex-col gap-1.5 pl-4 marker:text-muted-foreground">
               {p.steps.map((s) => (
                 <li key={s}>{t(s)}</li>

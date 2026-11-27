@@ -54,6 +54,8 @@ pub struct AppState {
     pub wifi_clients: RwLock<Vec<WifiClientInfo>>,
     /// When `wifi_clients` was last refreshed (Unix ms).
     pub wifi_updated_ms: RwLock<Option<i64>>,
+    /// Latest Starlink router status (`None` without a router or before the first read).
+    pub router_status: RwLock<Option<crate::models::RouterStatus>>,
     /// History of the real dish (file-backed).
     pub db: Arc<Mutex<Db>>,
     /// History of the mock dish (in memory, never mixed with real data).
@@ -136,6 +138,7 @@ impl AppState {
             power_cache: RwLock::new(None),
             wifi_clients: RwLock::new(Vec::new()),
             wifi_updated_ms: RwLock::new(None),
+            router_status: RwLock::new(None),
             db: Arc::new(Mutex::new(db)),
             mock_db: Arc::new(Mutex::new(Db::open_in_memory()?)),
             mock_db_profile: Mutex::new(None),

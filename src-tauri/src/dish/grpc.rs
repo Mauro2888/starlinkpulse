@@ -23,7 +23,7 @@ use super::{
     DeviceInfo, DishHistory, DishStatus, RouterClient, StarlinkClient, WifiClientInfo, WriteAction,
 };
 use crate::error::ClientError;
-use crate::models::{ObstructionMap, SnowMeltMode};
+use crate::models::{ObstructionMap, RouterStatus, SnowMeltMode};
 use crate::time::now_ms;
 
 /// Default per-request timeout (ADR-002).
@@ -413,6 +413,25 @@ impl RouterClient for GrpcClient {
             &top,
             "wifiGetClients",
         )?))
+    }
+
+    async fn router_status(&self) -> Result<RouterStatus, ClientError> {
+        let top = self.handle("get_status").await?;
+        // Optional: older firmware may lack `wifi_guest_info`; `isOnline` false is omitted.
+        let online = match self.handle("wifi_guest_info").await {
+            Ok(g) => Some(
+                response_body(&g, "wifiGuestInfo")
+                    .ok()
+                    .and_then(|b| b.get("isOnline"))
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            ),
+            Err(_) => None,
+        };
+        Ok(json::parse_router_status(
+            response_body(&top, "wifiGetStatus")?,
+            online,
+        ))
     }
 }
 
