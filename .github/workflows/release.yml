@@ -111,17 +111,13 @@ jobs:
             exit 1
           fi
 
-      # tauri-action names the release after the app version (v__VERSION__), not the pushed tag:
-      # a stale version would upload this build to an older release.
-      - name: Check tag matches app version
+      # The pushed tag is the single source of truth for the version. tauri-action names the
+      # release after the app version (v__VERSION__), so both must match. Cargo.toml feeds
+      # CARGO_PKG_VERSION (support report, User-Agent). The `bump-version` job below commits
+      # the same change to main after a successful build.
+      - name: Set app version from tag
         if: github.ref_type == 'tag'
-        shell: bash
-        run: |
-          version=$(node -p 'require("./src-tauri/tauri.conf.json").version')
-          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} does not match app version ${version} (tauri.conf.json, package.json, Cargo.toml)"
-            exit 1
-          fi
+        run: node scripts/set-version.mjs "${{ github.ref_name }}"
 
       - uses: tauri-apps/tauri-action@v0
         id: tauri
@@ -165,3 +161,33 @@ jobs:
             exit 1
           fi
           echo "Updater artifacts OK: ${sigs} signature(s), latest.json present"
+
+  # After all installers are built, record the released version on main, so the repository
+  # never needs a manual version bump. [skip ci]: CI already ran on the tagged commit.
+  bump-version:
+    name: Commit version to main
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Set version and update lockfiles
+        run: |
+          node scripts/set-version.mjs "${{ github.ref_name }}"
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          cargo update -p starlinkpulse --manifest-path src-tauri/Cargo.toml
+      - name: Commit and push
+        run: |
+          if git diff --quiet; then
+            echo "main is already at ${{ github.ref_name }}"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore: release ${{ github.ref_name }} [skip ci]"
+          git push origin HEAD:main

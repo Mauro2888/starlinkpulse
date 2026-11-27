@@ -67,24 +67,20 @@ Optional macOS signing and notarization secrets are listed at the top of `releas
 
 ## Release checklist
 
-1. **Make sure CI is green on `master`.**
-2. **Bump the version in all three files.** They must match:
-   - `package.json` → `"version"`
-   - `src-tauri/Cargo.toml` → `version`
-   - `src-tauri/tauri.conf.json` → `"version"`
-
-   Then run `npm install` and `cargo check` (in `src-tauri`), so `package-lock.json` and
-   `Cargo.lock` pick up the new version.
-3. **Commit:** `git commit -am "chore: release vX.Y.Z"`.
-4. **Tag and push:** `git tag vX.Y.Z && git push origin master vX.Y.Z`.
-5. **Wait for the Release workflow,** on all three platforms.
-6. **Review the draft release on GitHub:**
+1. **Make sure CI is green on `main`.**
+2. **Tag and push:** `git tag vX.Y.Z && git push origin vX.Y.Z`. No version bump commit: the
+   workflow sets the version from the tag (`scripts/set-version.mjs`) in `package.json`,
+   `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json` before building, and after a
+   successful build the `bump-version` job commits the same change (plus lockfiles) to `main`
+   as `chore: release vX.Y.Z [skip ci]`. Run `git pull` afterwards.
+3. **Wait for the Release workflow,** on all three platforms.
+4. **Review the draft release on GitHub:**
    - all installers are attached (`.dmg`, `.app.tar.gz`, `.msi`, `.exe`, `.AppImage`, `.deb`);
    - if the updater is configured, `latest.json` and the `.sig` files are attached, and
      `latest.json` shows the new version and the platform URLs;
    - edit the release notes. The notes become the update notes the app shows.
-7. **Smoke-test** at least one installer in read-only mode against a dish, or in Mock Mode.
-8. **Publish the draft.** From then on, installed apps with a configured updater see the
+5. **Smoke-test** at least one installer in read-only mode against a dish, or in Mock Mode.
+6. **Publish the draft.** From then on, installed apps with a configured updater see the
    update in *Settings → Check for updates*.
 
 ## Notes
