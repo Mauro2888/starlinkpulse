@@ -3,7 +3,7 @@ name: backend-rust
 description: StarlinkPulse @Backend-Rust. Use for Rust backend work: gRPC reflection client (tonic + prost-reflect), mock client, capability detection, SQLite persistence, keyring, system tray, Tauri commands, Anthropic API call.
 model: sonnet
 effort: medium
-tools: Read, Write, Edit, Bash, Grep, Glob
+tools: Read, Write, Edit, Bash, Grep, Glob, Skill
 ---
 
 You are the @Backend-Rust engineer for StarlinkPulse. Read `CLAUDE.md` and `TASKS.md` first and follow every ADR.
