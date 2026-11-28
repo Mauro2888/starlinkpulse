@@ -1,9 +1,8 @@
 //! In-app updates (Phase 5) via `tauri-plugin-updater` and GitHub Releases `latest.json`.
 //!
 //! The public key and endpoint live in `tauri.conf.json` (`plugins.updater`). Until the
-//! maintainer sets a real public key and replaces the `OWNER` placeholder in the endpoint
-//! (see docs/releasing.md), the updater counts as "not configured": `check_for_update`
-//! returns `updaterConfigured: false` and never errors.
+//! maintainer sets a real public key (see docs/releasing.md), the updater counts as
+//! "not configured": `check_for_update` returns `updaterConfigured: false` and never errors.
 
 use serde_json::Value;
 use tauri::AppHandle;
@@ -12,8 +11,7 @@ use tauri_plugin_updater::UpdaterExt;
 use crate::error::AppError;
 use crate::models::UpdateInfo;
 
-/// Placeholder owner in the repository URL / endpoint (TODO before the first release:
-/// replace `OWNER` in Cargo.toml `repository` and in tauri.conf.json, see docs/releasing.md).
+/// Legacy placeholder owner marker, retained so invalid historical builds are rejected.
 pub const OWNER_PLACEHOLDER: &str = "/OWNER/";
 
 /// Repository URL from Cargo.toml `repository`, fixed at compile time.
@@ -158,16 +156,13 @@ mod tests {
             releases_url("https://github.com/acme/StarlinkPulse/").unwrap(),
             "https://github.com/acme/StarlinkPulse/releases"
         );
-        // The shipped placeholder is rejected with invalid_input.
+        // Historical OWNER placeholders are rejected with invalid_input.
         let e = releases_url("https://github.com/OWNER/StarlinkPulse").unwrap_err();
         assert_eq!(e.kind(), "invalid_input");
-        assert!(
-            REPOSITORY_URL.contains("/OWNER/"),
-            "repo still has the placeholder"
-        );
+        assert_eq!(REPOSITORY_URL, "https://github.com/Mauro2888/starlinkpulse");
         assert_eq!(
-            releases_url(REPOSITORY_URL).unwrap_err().kind(),
-            "invalid_input"
+            releases_url(REPOSITORY_URL).unwrap(),
+            "https://github.com/Mauro2888/starlinkpulse/releases"
         );
         for bad in [
             "http://github.com/a/b",

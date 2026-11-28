@@ -4,7 +4,7 @@ version = "1.1.0"
 description = "Lightweight cross-platform Starlink monitor with AI diagnostics"
 authors = ["StarlinkPulse contributors"]
 license = "MIT"
-repository = "https://github.com/OWNER/StarlinkPulse"
+repository = "https://github.com/Mauro2888/starlinkpulse"
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

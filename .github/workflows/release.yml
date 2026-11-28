@@ -92,7 +92,7 @@ jobs:
             const key = (c.pubkey ?? "").trim();
             const eps = c.endpoints ?? [];
             const ok = key.length >= 40 && !/REPLACE/i.test(key) && eps.length > 0 &&
-              eps.every(e => e.startsWith("https://") && !e.includes("/OWNER/"));
+              eps.every(e => e.startsWith("https://github.com/Mauro2888/starlinkpulse/releases/latest/download/"));
             process.stdout.write(ok ? "true" : "false");
           ')
           if [ -n "${TAURI_SIGNING_PRIVATE_KEY}" ] && [ "$configured" = "true" ]; then
@@ -107,7 +107,7 @@ jobs:
             echo "::error::plugins.updater.pubkey is set but the TAURI_SIGNING_PRIVATE_KEY secret is missing"
             exit 1
           else
-            echo "::error::TAURI_SIGNING_PRIVATE_KEY is set but plugins.updater (pubkey / endpoint without OWNER) is not configured in tauri.conf.json"
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is set but plugins.updater (pubkey / repository endpoint) is not configured in tauri.conf.json"
             exit 1
           fi
 

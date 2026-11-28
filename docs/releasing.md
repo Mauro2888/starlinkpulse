@@ -7,20 +7,16 @@ reviews the draft and publishes it.
 
 ## One-time setup (before the first release)
 
-### 1. Replace the `OWNER` placeholder
+### 1. Verify repository metadata
 
-Replace `OWNER` with the GitHub user or organisation that hosts the repository in:
+The repository and updater endpoint are configured for
+`https://github.com/Mauro2888/starlinkpulse`.
 
-- `src-tauri/Cargo.toml` → `repository = "https://github.com/OWNER/StarlinkPulse"`
-- `src-tauri/tauri.conf.json` → `plugins.updater.endpoints`
-  (`https://github.com/OWNER/StarlinkPulse/releases/latest/download/latest.json`)
-
-While the endpoint still contains `/OWNER/`, the app reports `updaterConfigured: false` and
-never checks for updates.
+Until a public minisign key is added, the app reports `updaterConfigured: false` and never
+checks for updates.
 
 The "Open releases page" button opens `<repository>/releases`, using the `repository` value
-from `Cargo.toml` built into the app. While that value still contains `OWNER`, the button
-returns `invalid_input`.
+from `Cargo.toml` built into the app.
 
 ### 2. Create the updater signing key
 

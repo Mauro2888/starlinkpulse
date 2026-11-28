@@ -475,6 +475,43 @@ mod tests {
     }
 
     #[test]
+    fn fixture_manifest_is_valid_and_anonymized() {
+        let dir = format!("{}/tests/fixtures", env!("CARGO_MANIFEST_DIR"));
+        let entries = std::fs::read_dir(dir).expect("fixture directory");
+        let mut names = Vec::new();
+        for entry in entries {
+            let path = entry.expect("fixture entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            names.push(path.file_name().unwrap().to_string_lossy().to_string());
+            let text = std::fs::read_to_string(&path).expect("fixture contents");
+            let mut value: Value = serde_json::from_str(&text).expect("valid fixture JSON");
+            strip_pii(&mut value);
+            let text = serde_json::to_string(&value).unwrap();
+            for needle in [
+                "macAddress",
+                "ipAddress",
+                "ipv6WanAddresses",
+                "deviceId",
+                "serialNumber",
+            ] {
+                assert!(
+                    !text.contains(needle),
+                    "{needle} is still present in {}",
+                    path.display()
+                );
+            }
+        }
+        names.sort();
+        assert!(names.contains(&"get_status.json".to_string()));
+        assert!(names.contains(&"get_history.json".to_string()));
+        assert!(names.contains(&"wifi_get_clients.json".to_string()));
+        assert!(names.contains(&"obstruction_map.json".to_string()));
+        assert!(names.contains(&"dish_get_config.json".to_string()));
+    }
+
+    #[test]
     fn status_fixture_parses() {
         let top = fixture("get_status.json");
         let body = response_body(&top, "dishGetStatus").unwrap();
